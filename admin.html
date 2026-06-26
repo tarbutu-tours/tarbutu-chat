@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>תרבותו – לוח ניהול</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<style>
+:root{--p:#1a6fa8;--pd:#0e4e7a;--pl:#e8f4fd;--ok:#27ae60;--warn:#f39c12;--danger:#e74c3c}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:#f0f4f8;color:#343a40;min-height:100vh;direction:rtl}
+.nav{background:var(--pd);color:#fff;height:56px;display:flex;align-items:center;padding:0 1.5rem;gap:1rem}
+.nav-logo{font-size:1.1rem;font-weight:700;flex:1}.nav-logo span{color:#f0c040}
+.main{display:grid;grid-template-columns:320px 1fr;height:calc(100vh - 56px)}
+/* Sidebar */
+.sidebar{background:#fff;border-left:1px solid #dee2e6;display:flex;flex-direction:column}
+.sidebar-hdr{padding:1rem;border-bottom:1px solid #f0f4f8;display:flex;align-items:center;justify-content:space-between}
+.sidebar-title{font-weight:600;font-size:.95rem}
+.badge{background:var(--danger);color:#fff;border-radius:99px;font-size:11px;padding:2px 7px;font-weight:700}
+.conv-list{flex:1;overflow-y:auto}
+.conv-item{padding:12px 14px;border-bottom:1px solid #f0f4f8;cursor:pointer;transition:all .15s;border-right:4px solid transparent}
+.conv-item:hover{background:var(--pl)}
+.conv-item.active{background:var(--pl);border-right-color:var(--p)}
+.conv-item.agent-mode{border-right-color:var(--ok)}
+.conv-name{font-weight:600;font-size:.88rem}
+.conv-preview{font-size:12px;color:#6c757d;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-meta{display:flex;gap:6px;margin-top:4px;align-items:center}
+.pill{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600}
+.pill-bot{background:var(--pl);color:var(--pd)}
+.pill-agent{background:#e8f8ef;color:#1a5e35}
+.conv-time{font-size:11px;color:#adb5bd;margin-right:auto}
+/* Chat area */
+.chat-area{display:flex;flex-direction:column;background:#f8fafc}
+.chat-empty{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:#adb5bd}
+.chat-empty i{font-size:48px}
+.chat-topbar{padding:1rem 1.25rem;background:#fff;border-bottom:1px solid #dee2e6;display:flex;align-items:center;gap:12px;flex-shrink:0}
+.chat-topbar-name{font-weight:700;font-size:1rem}
+.chat-topbar-sub{font-size:12px;color:#6c757d}
+.msgs{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:10px}
+.msg{display:flex;flex-direction:column;gap:2px}
+.msg.bot{align-items:flex-end}.msg.user{align-items:flex-start}.msg.agent{align-items:flex-end}
+.msg-bbl{max-width:78%;padding:9px 13px;border-radius:14px;font-size:14px;line-height:1.55;word-break:break-word}
+.msg.bot .msg-bbl{background:var(--p);color:#fff;border-bottom-left-radius:3px}
+.msg.user .msg-bbl{background:#fff;border:1px solid #dee2e6;color:#343a40;border-bottom-right-radius:3px}
+.msg.agent .msg-bbl{background:#e8f8ef;border:1px solid #b0dfc0;color:#1a4a30;border-bottom-left-radius:3px}
+.msg-meta{font-size:11px;color:#adb5bd;padding:0 3px}
+.msg-sender{font-size:11px;font-weight:600;color:#1a7040;padding:0 3px}
+/* Input area */
+.agent-bar{background:#e8f8ef;border-top:1px solid #b0dfc0;padding:8px 14px;font-size:13px;color:#1a5e35;display:none;align-items:center;gap:8px;flex-shrink:0}
+.agent-bar.show{display:flex}
+.agent-bar button{background:transparent;border:1px solid currentColor;border-radius:99px;padding:3px 12px;font-size:12px;cursor:pointer;font-family:inherit;color:inherit}
+.input-area{padding:10px 14px;background:#fff;border-top:1px solid #dee2e6;display:flex;gap:8px;align-items:center;flex-shrink:0}
+.input-area textarea{flex:1;border:1.5px solid #dee2e6;border-radius:10px;padding:9px 13px;font-size:14px;outline:none;font-family:inherit;direction:rtl;resize:none;height:44px;transition:border-color .2s}
+.input-area textarea:focus{border-color:var(--p)}
+.input-area textarea:disabled{background:#f8f9fa;color:#aaa}
+.btn{padding:9px 16px;border-radius:8px;border:none;cursor:pointer;font-size:14px;font-family:inherit;font-weight:600;display:flex;align-items:center;gap:6px;transition:all .15s;flex-shrink:0}
+.btn-primary{background:var(--p);color:#fff}.btn-primary:hover{background:var(--pd)}
+.btn-success{background:var(--ok);color:#fff}
+.btn-outline{background:transparent;border:1px solid #dee2e6;color:#343a40}.btn-outline:hover{background:#f0f4f8}
+.btn-sm{padding:6px 12px;font-size:13px}
+.takeover-btn{background:var(--ok);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px;font-family:inherit;font-weight:600;display:flex;align-items:center;gap:8px;width:100%;justify-content:center;transition:all .2s}
+.takeover-btn:hover{background:#1e8a4e}
+/* Stats */
+.stats{display:flex;gap:1rem;padding:1rem 1.5rem;background:#fff;border-bottom:1px solid #dee2e6;flex-shrink:0}
+.stat{background:#f0f4f8;border-radius:8px;padding:.75rem 1rem;flex:1;text-align:center}
+.stat-num{font-size:1.5rem;font-weight:700;color:var(--p)}
+.stat-lbl{font-size:12px;color:#6c757d}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-logo">תרבותו <span>AI Chat</span> — לוח ניהול</div>
+  <span style="font-size:13px;opacity:.7">נציג: <strong id="agent-name-display">אנונימי</strong></span>
+  <button class="btn btn-sm btn-outline" style="color:#fff;border-color:rgba(255,255,255,.3)" onclick="setAgentName()">שנה שם</button>
+</nav>
+
+<div class="main">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-hdr">
+      <span class="sidebar-title">שיחות פעילות</span>
+      <span class="badge" id="conv-count">0</span>
+    </div>
+    <div class="conv-list" id="conv-list">
+      <div style="padding:2rem;text-align:center;color:#adb5bd;font-size:13px">
+        <i class="ti ti-messages" style="font-size:32px;display:block;margin-bottom:8px"></i>
+        ממתין לשיחות...
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat area -->
+  <div class="chat-area" id="chat-area">
+    <div class="chat-empty">
+      <i class="ti ti-message-dots"></i>
+      <span>בחר שיחה מהרשימה</span>
+    </div>
+  </div>
+</div>
+
+<script>
+let agentName = localStorage.getItem('agentName') || 'נציג';
+let activeConvId = null;
+let pollInterval = null;
+
+document.getElementById('agent-name-display').textContent = agentName;
+
+function setAgentName() {
+  const n = prompt('הכנס שם נציג:', agentName);
+  if (n) { agentName = n; localStorage.setItem('agentName', n); document.getElementById('agent-name-display').textContent = n; }
+}
+
+function timeAgo(d) {
+  if (!d) return '';
+  const diff = Math.floor((Date.now() - new Date(d)) / 1000);
+  if (diff < 60) return 'עכשיו';
+  if (diff < 3600) return Math.floor(diff/60) + ' דק\'';
+  return Math.floor(diff/3600) + ' שע\'';
+}
+
+async function loadConversations() {
+  try {
+    const r = await fetch('/api/conversations');
+    const list = await r.json();
+    document.getElementById('conv-count').textContent = list.length;
+    const el = document.getElementById('conv-list');
+    if (!list.length) {
+      el.innerHTML = '<div style="padding:2rem;text-align:center;color:#adb5bd;font-size:13px"><i class="ti ti-messages" style="font-size:32px;display:block;margin-bottom:8px"></i>אין שיחות עדיין</div>';
+      return;
+    }
+    el.innerHTML = list.map(c => `
+      <div class="conv-item ${c.id===activeConvId?'active':''} ${c.agentMode?'agent-mode':''}" onclick="openConv('${c.id}')">
+        <div class="conv-name">לקוח ${c.id.slice(-4)}</div>
+        <div class="conv-preview">${c.lastMessage||'שיחה חדשה'}</div>
+        <div class="conv-meta">
+          <span class="pill ${c.agentMode?'pill-agent':'pill-bot'}">${c.agentMode?'👤 נציג':'🤖 בוט'}</span>
+          <span class="conv-time">${timeAgo(c.updatedAt)}</span>
+        </div>
+      </div>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function openConv(id) {
+  activeConvId = id;
+  clearInterval(pollInterval);
+  try {
+    const r = await fetch(`/api/conversations/${id}`);
+    const conv = await r.json();
+    renderChat(conv);
+    pollInterval = setInterval(() => refreshChat(id), 3000);
+  } catch(e) { console.error(e); }
+}
+
+async function refreshChat(id) {
+  if (activeConvId !== id) return;
+  try {
+    const r = await fetch(`/api/conversations/${id}`);
+    const conv = await r.json();
+    renderChat(conv);
+  } catch(e) {}
+}
+
+function renderChat(conv) {
+  const area = document.getElementById('chat-area');
+  const msgs = conv.history || [];
+  area.innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="stat-num">${msgs.length}</div><div class="stat-lbl">הודעות</div></div>
+      <div class="stat"><div class="stat-num">${conv.agentMode?'נציג':'בוט'}</div><div class="stat-lbl">מצב</div></div>
+    </div>
+    <div class="chat-topbar">
+      <div style="width:38px;height:38px;border-radius:50%;background:var(--pl);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--p)">ל</div>
+      <div>
+        <div class="chat-topbar-name">לקוח ${conv.id.slice(-4)}</div>
+        <div class="chat-topbar-sub">${conv.agentMode?'👤 נציג בשיחה':'🤖 בוט מטפל'} · ${conv.history.length} הודעות</div>
+      </div>
+      <div style="margin-right:auto;display:flex;gap:8px">
+        ${conv.agentMode
+          ? `<button class="btn btn-sm btn-outline" onclick="releaseConv('${conv.id}')"><i class="ti ti-robot"></i> החזר לבוט</button>`
+          : `<button class="btn btn-sm btn-success" onclick="takeoverConv('${conv.id}')"><i class="ti ti-hand-stop"></i> כנס לשיחה</button>`
+        }
+      </div>
+    </div>
+    <div class="msgs" id="msgs-${conv.id}">
+      ${msgs.map(m => `
+        <div class="msg ${m.role}">
+          ${m.role==='agent'?`<div class="msg-sender">${m.agentName||'נציג'}</div>`:''}
+          <div class="msg-bbl">${(m.content||'').replace(/\n/g,'<br>')}</div>
+          <div class="msg-meta">${m.time?new Date(m.time).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):''}</div>
+        </div>`).join('')}
+    </div>
+    <div class="agent-bar ${conv.agentMode?'show':''}" id="agent-bar-${conv.id}">
+      <i class="ti ti-user-check"></i>
+      <span>אתה בשיחה כנציג</span>
+    </div>
+    <div class="input-area">
+      <textarea id="agent-input" placeholder="${conv.agentMode?'כתוב תשובה ללקוח...':'כנס לשיחה כדי לענות'}" ${conv.agentMode?'':'disabled'}
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAgentMsg('${conv.id}')}"></textarea>
+      <button class="btn btn-primary" onclick="sendAgentMsg('${conv.id}')" ${conv.agentMode?'':'disabled'}>
+        <i class="ti ti-send"></i>
+      </button>
+    </div>`;
+
+  const msgsEl = document.getElementById(`msgs-${conv.id}`);
+  if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+async function takeoverConv(id) {
+  await fetch(`/api/conversations/${id}/takeover`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ agentName })
+  });
+  openConv(id);
+}
+
+async function releaseConv(id) {
+  await fetch(`/api/conversations/${id}/release`, { method: 'POST' });
+  openConv(id);
+}
+
+async function sendAgentMsg(id) {
+  const inp = document.getElementById('agent-input');
+  const msg = inp.value.trim();
+  if (!msg) return;
+  inp.value = '';
+  await fetch(`/api/conversations/${id}/agent-message`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ message: msg, agentName })
+  });
+  openConv(id);
+}
+
+// רענון אוטומטי של רשימת שיחות
+loadConversations();
+setInterval(loadConversations, 5000);
+</script>
+</body>
+</html>
