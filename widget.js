@@ -7,6 +7,7 @@
   var pollTimer = null;
   var chatType = null;
 
+  // ===== CSS =====
   var style = document.createElement('style');
   style.textContent = [
     '#tc-fab{position:fixed;bottom:24px;left:24px;width:58px;height:58px;background:'+COLOR+';border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.25);z-index:99999;border:none;transition:transform .2s}',
@@ -45,8 +46,10 @@
     '#tc-send{background:'+COLOR+';color:#fff;border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px}',
     '#tc-send:hover{opacity:.85}#tc-send:disabled{opacity:.5;cursor:not-allowed}',
     '#tc-agent-notice{background:#e8f8ef;border-top:1px solid #b0dfc0;padding:6px 12px;font-size:12px;color:#1a5e35;display:none;align-items:center;gap:6px;flex-shrink:0}',
+    // ===== DISCLAIMER BAR =====
     '#tc-disclaimer{text-align:center;font-size:10px;color:#adb5bd;padding:5px 10px;background:#f8fafc;flex-shrink:0;line-height:1.5;border-top:1px solid #f0f0f0}',
     '#tc-disclaimer a{color:'+COLOR+';text-decoration:underline;cursor:pointer;font-weight:600}',
+    // ===== MODAL =====
     '#tc-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999999;display:none;align-items:center;justify-content:center;padding:16px}',
     '#tc-modal-overlay.show{display:flex}',
     '#tc-modal{background:#fff;border-radius:16px;max-width:400px;width:100%;max-height:85vh;overflow-y:auto;direction:rtl;font-family:"Segoe UI","Arial Hebrew",Arial,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,.3)}',
@@ -61,11 +64,13 @@
   ].join('');
   document.head.appendChild(style);
 
+  // ===== FAB =====
   var fab = document.createElement('button');
   fab.id = 'tc-fab';
   fab.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg><span id="tc-badge"></span>';
   document.body.appendChild(fab);
 
+  // ===== CHAT WINDOW =====
   var win = document.createElement('div');
   win.id = 'tc-window';
   win.innerHTML = [
@@ -94,6 +99,7 @@
   ].join('');
   document.body.appendChild(win);
 
+  // ===== MODAL תנאי שימוש =====
   var modalEl = document.createElement('div');
   modalEl.id = 'tc-modal-overlay';
   modalEl.innerHTML = [
@@ -105,7 +111,7 @@
       '<div id="tc-modal-body">',
         '<h4>לתשומת לבך:</h4>',
         '<p>הבוט הוא מערכת אוטומטית המבוססת על טכנולוגיית בינה מלאכותית, והוא נועד לספק מידע כללי בלבד ולעזור בשאלות בנוגע לשירותים שלנו. המידע המסופק עשוי שלא להיות מלא, מדויק או מעודכן בכל עת. לפיכך, מומלץ שלא להסתמך באופן בלעדי על המידע הניתן בבוט לצורך קבלת החלטות חשובות.</p>',
-        '<p>הבוט אינו מיועד להוות תחליף ליעוץ מקצועי, יעוץ פיננסי, משפטי או רפואי. לכל שאלה כזאת, אנא פנה לאיש מקצוע מוסמך.</p>',
+        '<p>הבוט אינו מיועד להוות תחליף ליעוץ מקצועי, יעוץ פיננסי משפטי או יעוץ רפואי לכל שאלה כזאת, אנא הקשורה לנושאים אלו, אנא פנה לאיש מקצוע מוסמך.</p>',
         '<h4>פרטיות:</h4>',
         '<p>שים לב כי הבוט אינו אוסף מידע אישי כלשהו במהלך השיחות. עם זאת, אנו מבקשים לשמור את השיחה ניטרלית ולא לשתף מידע אישי או פרטים רגישים אחרים.</p>',
         '<h4>אחריות:</h4>',
@@ -116,8 +122,10 @@
   ].join('');
   document.body.appendChild(modalEl);
 
+  // סגור מודל בלחיצה על הרקע
   modalEl.addEventListener('click', function(e) { if (e.target === modalEl) tcHideModal(); });
 
+  // ===== FUNCTIONS =====
   window.tcShowModal = function() { modalEl.classList.add('show'); };
   window.tcHideModal = function() { modalEl.classList.remove('show'); };
 
@@ -164,14 +172,26 @@
     var txt=inp.value.trim();
     if(!txt) return;
     inp.value='';snd.disabled=true;
-    addMsg('user',txt);setTyping(true);
+    addMsg('user',txt);
+    setTyping(true);
     try {
-      var r=await fetch(SERVER+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:SESSION,message:txt,history:history,chatType:chatType})});
+      var r=await fetch(SERVER+'/api/chat',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({sessionId:SESSION,message:txt,history:history,chatType:chatType})
+      });
       var d=await r.json();
       setTyping(false);
-      if(d.message){history.push({role:'user',content:txt});history.push({role:'assistant',content:d.message});addMsg('bot',d.message);}
+      if(d.message){
+        history.push({role:'user',content:txt});
+        history.push({role:'assistant',content:d.message});
+        addMsg('bot',d.message);
+      }
       if(d.type==='waiting') addMsg('bot','⏳ נציג אנושי יענה לך בהקדם...');
-    } catch(e){setTyping(false);addMsg('bot','⚠️ שגיאת חיבור — נסה שוב.');}
+    } catch(e){
+      setTyping(false);
+      addMsg('bot','⚠️ שגיאת חיבור — נסה שוב.');
+    }
     snd.disabled=false;inp.focus();
   }
 

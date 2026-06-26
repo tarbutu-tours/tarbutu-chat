@@ -9,14 +9,14 @@ const PORT = process.env.PORT || 3000;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
 const conversations = new Map();
 
 var kbTrips = [];
-var kbFaqs = [];
+var kbSupportText = '';
 
 var siteCache = { content: '', lastScanned: null, isScanning: false, pagesScanned: 0, totalPages: 0 };
 var CACHE_TTL = 24 * 60 * 60 * 1000;
@@ -35,7 +35,7 @@ async function fetchPage(url) {
     });
     if (!res.ok) return '';
     var data = await res.json();
-    return data.content.filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; }).join('\n');
+    return data.content.filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('\n');
   } catch(e) { console.log('שגיאת סריקה:', e.message); return ''; }
 }
 
@@ -67,26 +67,24 @@ setInterval(function() { if (kbTrips.length > 0) scanSite(); }, CACHE_TTL);
 
 app.post('/api/kb-update', function(req, res) {
   if (req.body.trips) kbTrips = req.body.trips;
-  if (req.body.faqs) kbFaqs = req.body.faqs;
-  console.log('מאגר עודכן — ' + kbTrips.length + ' טיולים, ' + kbFaqs.length + ' שאלות');
+  if (req.body.supportText !== undefined) kbSupportText = req.body.supportText;
+  console.log('מאגר עודכן — ' + kbTrips.length + ' טיולים, ' + kbSupportText.length + ' תווי שירות');
   res.json({ success: true });
 });
 
 function buildSystem(chatType, knowledge) {
-  var faqText = '';
-  if (kbFaqs.length > 0) {
-    faqText = '\n\n=== שאלות ותשובות שירות לקוחות ===\n';
-    kbFaqs.forEach(function(f) { faqText += 'ש: ' + f.q + '\nת: ' + f.a + '\n\n'; });
-  }
+  var supportSection = kbSupportText ? '\n\n=== מידע שירות לקוחות ===\n' + kbSupportText : '';
   var scanDate = siteCache.lastScanned ? siteCache.lastScanned.toLocaleDateString('he-IL') : 'היום';
+
   if (chatType === 'support') {
-    return 'אתה נציג שירות לקוחות של חברת "תרבותו".\n\nחוקים:\n- ענה תמיד בעברית\n- היה חם, אמפתי ומועיל\n- ענה על שאלות הקשורות להזמנות קיימות, ביטולים, שינויים, מסמכים\n- לשאלות שדורשות בדיקה אישית — הפנה ל-03-5260090\n\n' + faqText + (knowledge ? '\nמידע נוסף:\n' + knowledge : '');
+    return 'אתה נציג שירות לקוחות של חברת "תרבותו".\n\nחוקים:\n- ענה תמיד בעברית\n- היה חם, אמפתי ומועיל\n- ענה לפי המידע שבמאגר בלבד\n- לשאלות שדורשות בדיקה אישית — הפנה ל-03-5260090\n- אל תמציא מידע שלא קיים\n\n' + supportSection + (knowledge ? '\n\nמידע נוסף:\n' + knowledge : '');
   }
-  return 'אתה יועץ מכירות של חברת "תרבותו" – חברת טיולי תרבות ישראלית.\n\nחוקים:\n- ענה תמיד בעברית\n- היה נלהב ומכירתי\n- תן מידע מפורט: תאריכים, אוניות, מסלולים\n- אם יש מספר תאריכים — ציין את כולם\n- לגבי מחירים הפנה ל-03-5260090\n- אל תמציא נתונים\n\n' + (knowledge ? 'מידע עדכני מהאתר (נסרק ' + scanDate + '):\n' + knowledge : 'טלפון: 03-5260090 | tarbutu.co.il') + faqText;
+
+  return 'אתה יועץ מכירות של חברת "תרבותו" – חברת טיולי תרבות ישראלית.\n\nחוקים:\n- ענה תמיד בעברית\n- היה נלהב ומכירתי\n- תן מידע מפורט: תאריכים, אוניות, מסלולים\n- אם יש מספר תאריכים — ציין את כולם\n- לגבי מחירים הפנה ל-03-5260090\n- אל תמציא נתונים\n\n' + (knowledge ? 'מידע עדכני מהאתר (נסרק ' + scanDate + '):\n' + knowledge : 'טלפון: 03-5260090 | tarbutu.co.il');
 }
 
 var SIMPLE = ['שלום','היי','תודה','להתראות','בוקר','ערב','מה שלומך','מי אתה'];
-function isSimple(msg) { return SIMPLE.some(function(k) { return msg.toLowerCase().includes(k); }) && msg.length < 20; }
+function isSimple(msg) { return SIMPLE.some(function(k){return msg.toLowerCase().includes(k);}) && msg.length < 20; }
 
 app.post('/api/chat', async function(req, res) {
   var sessionId = req.body.sessionId;
@@ -120,7 +118,7 @@ app.post('/api/chat', async function(req, res) {
 });
 
 app.get('/api/cache-status', function(req, res) {
-  res.json({ hasCache: !!siteCache.content, lastScanned: siteCache.lastScanned, contentLength: siteCache.content.length, isScanning: siteCache.isScanning, pagesScanned: siteCache.pagesScanned, totalPages: siteCache.totalPages || kbTrips.length });
+  res.json({ hasCache: !!siteCache.content, lastScanned: siteCache.lastScanned, contentLength: siteCache.content.length, isScanning: siteCache.isScanning, pagesScanned: siteCache.pagesScanned, totalPages: siteCache.totalPages || kbTrips.length, supportTextLength: kbSupportText.length });
 });
 
 app.post('/api/scan-now', function(req, res) {

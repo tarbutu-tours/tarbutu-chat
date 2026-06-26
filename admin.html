@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>תרבותו – לוח ניהול</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 :root{--p:#1a6fa8;--pd:#0e4e7a;--pl:#e8f4fd;--ok:#27ae60;--warn:#f39c12;--danger:#e74c3c;--gray:#f0f4f8;--border:#dee2e6}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -59,22 +61,40 @@ body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gra
 .input-area textarea{flex:1;border:1.5px solid var(--border);border-radius:10px;padding:8px 12px;font-size:13px;outline:none;font-family:inherit;direction:rtl;resize:none;height:42px;transition:border-color .2s}
 .input-area textarea:focus{border-color:var(--p)}
 .input-area textarea:disabled{background:#f8f9fa;color:#aaa}
+/* KB Tabs */
 .kb-tabs{display:flex;gap:4px;margin-bottom:1rem}
 .kb-tab{padding:8px 16px;border-radius:8px;border:1.5px solid var(--border);background:#fff;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:6px}
 .kb-tab:hover{border-color:var(--p);color:var(--p)}
 .kb-tab.active{background:var(--p);color:#fff;border-color:var(--p)}
 .kb-section{display:none}.kb-section.active{display:block}
 .kb-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}
-.kb-form{display:flex;flex-direction:column;gap:10px}
-.kb-form label{font-size:12px;color:#6c757d;margin-bottom:2px;display:block;font-weight:600}
-.kb-form input,.kb-form textarea{width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;font-family:inherit;direction:rtl;transition:border-color .2s}
-.kb-form input:focus,.kb-form textarea:focus{border-color:var(--p)}
-.kb-list{display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto}
+.kb-form label{font-size:12px;color:#6c757d;margin-bottom:4px;display:block;font-weight:600}
+.kb-form input{width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;font-family:inherit;direction:rtl;transition:border-color .2s;margin-bottom:10px}
+.kb-form input:focus{border-color:var(--p)}
+.kb-list{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto}
 .kb-item{background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px}
 .kb-item-info{flex:1;min-width:0}
 .kb-item-name{font-weight:600;font-size:13px}
 .kb-item-url{font-size:11px;color:#6c757d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kb-item-preview{font-size:11px;color:#6c757d;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* File Upload Zone */
+.upload-zone{border:2px dashed var(--border);border-radius:10px;padding:2rem;text-align:center;cursor:pointer;transition:all .2s;background:#fafafa;margin-bottom:1rem}
+.upload-zone:hover,.upload-zone.drag-over{border-color:var(--p);background:var(--pl)}
+.upload-zone i{font-size:36px;color:var(--p);display:block;margin-bottom:8px}
+.upload-zone .uz-title{font-weight:600;font-size:14px;color:var(--gray-800);margin-bottom:4px}
+.upload-zone .uz-sub{font-size:12px;color:#6c757d}
+.upload-zone input[type=file]{display:none}
+/* Doc list */
+.doc-item{background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:10px}
+.doc-icon{font-size:24px;flex-shrink:0}
+.doc-info{flex:1;min-width:0}
+.doc-name{font-weight:600;font-size:13px}
+.doc-meta{font-size:11px;color:#6c757d;margin-top:2px}
+.doc-preview{font-size:11px;color:#555;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* Text input area */
+.text-input-area{display:flex;flex-direction:column;gap:8px}
+.text-input-area textarea{width:100%;height:160px;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;resize:vertical;font-family:inherit;direction:rtl;outline:none;transition:border-color .2s}
+.text-input-area textarea:focus{border-color:var(--p)}
+/* Scan bar */
 .scan-bar{background:var(--pl);border:1px solid #b8d8f0;border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px;margin-bottom:1.25rem}
 .scan-bar i{font-size:22px;color:var(--p);flex-shrink:0}
 .scan-info{flex:1}
@@ -82,6 +102,12 @@ body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gra
 .scan-sub{font-size:12px;color:#6c757d;margin-top:2px}
 .progress-wrap{height:5px;background:var(--border);border-radius:99px;overflow:hidden;margin-top:6px}
 .progress-fill{height:100%;background:var(--p);border-radius:99px;transition:width .5s}
+/* Processing */
+.processing-bar{background:#fff8e1;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;font-size:13px;color:#7a5800;display:none;align-items:center;gap:8px;margin-bottom:10px}
+.processing-bar.show{display:flex}
+.spin{animation:spin 1s linear infinite;display:inline-block}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+/* Stats */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin-bottom:1.25rem}
 .stat-card{background:#fff;border-radius:12px;padding:1.25rem;box-shadow:0 2px 12px rgba(0,0,0,.07)}
 .stat-num{font-size:1.75rem;font-weight:700;color:var(--p)}
@@ -101,6 +127,7 @@ body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gra
   <button class="btn btn-sm btn-outline" style="color:#fff;border-color:rgba(255,255,255,.3)" onclick="setAgentName()">שנה שם</button>
 </nav>
 
+<!-- CONVERSATIONS -->
 <div class="page active" id="page-conversations">
   <div class="main-grid">
     <div class="sidebar">
@@ -120,28 +147,34 @@ body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gra
   </div>
 </div>
 
+<!-- KNOWLEDGE BASE -->
 <div class="page" id="page-knowledge">
   <div class="scan-bar">
     <i class="ti ti-world-search"></i>
     <div class="scan-info">
-      <div class="scan-title" id="scan-title">מאגר מידע — סריקת אתר</div>
+      <div class="scan-title" id="scan-title">מאגר מידע</div>
       <div class="scan-sub" id="scan-sub">טוען...</div>
       <div class="progress-wrap"><div class="progress-fill" id="scan-progress" style="width:0%"></div></div>
     </div>
-    <button class="btn btn-primary btn-sm" onclick="triggerScan()"><i class="ti ti-refresh"></i> סרוק עכשיו</button>
+    <button class="btn btn-primary btn-sm" onclick="triggerScan()"><i class="ti ti-refresh"></i> סרוק טיולים</button>
   </div>
+
   <div class="kb-tabs">
     <button class="kb-tab active" onclick="showKbTab('trips')" id="kbtab-trips"><i class="ti ti-ship"></i> טיולים וקישורים</button>
-    <button class="kb-tab" onclick="showKbTab('faq')" id="kbtab-faq"><i class="ti ti-help-circle"></i> שאלות שירות לקוחות</button>
+    <button class="kb-tab" onclick="showKbTab('support')" id="kbtab-support"><i class="ti ti-headset"></i> שירות לקוחות</button>
   </div>
+
+  <!-- TRIPS TAB -->
   <div class="kb-section active" id="kb-trips">
     <div class="kb-grid">
       <div class="card">
         <div class="card-header"><div class="card-title"><i class="ti ti-plus"></i> הוסף טיול</div></div>
         <div class="card-body">
           <div class="kb-form">
-            <div><label>שם הטיול</label><input type="text" id="trip-name" placeholder="קרוז לאיסלנד — יולי 2026"></div>
-            <div><label>קישור לדף הטיול באתר</label><input type="text" id="trip-url" placeholder="https://tarbutu.co.il/..."></div>
+            <label>שם הטיול</label>
+            <input type="text" id="trip-name" placeholder="קרוז לאיסלנד — יולי 2026">
+            <label>קישור לדף הטיול</label>
+            <input type="text" id="trip-url" placeholder="https://tarbutu.co.il/...">
             <button class="btn btn-primary" onclick="addTrip()"><i class="ti ti-plus"></i> הוסף</button>
           </div>
           <hr style="margin:1rem 0;border:none;border-top:1px solid var(--border)">
@@ -159,34 +192,59 @@ body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gra
       </div>
     </div>
   </div>
-  <div class="kb-section" id="kb-faq">
+
+  <!-- SUPPORT TAB -->
+  <div class="kb-section" id="kb-support">
     <div class="kb-grid">
+      <!-- Upload -->
       <div class="card">
-        <div class="card-header"><div class="card-title"><i class="ti ti-plus"></i> הוסף שאלה ותשובה</div></div>
+        <div class="card-header"><div class="card-title"><i class="ti ti-upload"></i> העלאת מסמך שירות לקוחות</div></div>
         <div class="card-body">
-          <div class="kb-form">
-            <div><label>שאלה</label><input type="text" id="faq-q" placeholder="כיצד מבטלים טיול?"></div>
-            <div><label>תשובה</label><textarea id="faq-a" rows="4" placeholder="לביטול טיול יש לפנות אלינו לפחות 60 יום לפני היציאה..."></textarea></div>
-            <button class="btn btn-success" onclick="addFaq()"><i class="ti ti-plus"></i> הוסף שאלה</button>
+          <div class="processing-bar" id="processing-bar">
+            <i class="ti ti-refresh spin"></i>
+            <span id="processing-text">מעבד קובץ...</span>
+          </div>
+          <!-- File Upload -->
+          <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropFile(event)">
+            <input type="file" id="file-input" accept=".pdf,.doc,.docx,.txt" onchange="handleFile(this.files[0])">
+            <i class="ti ti-cloud-upload"></i>
+            <div class="uz-title">גרור קובץ לכאן או לחץ להעלאה</div>
+            <div class="uz-sub">PDF, Word (.docx), טקסט (.txt) — עד 10MB</div>
+          </div>
+          <div style="text-align:center;font-size:13px;color:#adb5bd;margin:10px 0">— או הכנס טקסט ישירות —</div>
+          <!-- Free Text -->
+          <div class="text-input-area">
+            <label style="font-size:12px;color:#6c757d;font-weight:600">טקסט חופשי (מדיניות, הנחיות, מידע):</label>
+            <textarea id="free-text" placeholder="הכנס כאן מידע לשירות לקוחות...&#10;&#10;לדוגמה:&#10;תנאי ביטול: ביטול מעל 60 יום — החזר מלא...&#10;ביטוח: ביטוח נסיעות חובה..."></textarea>
+            <button class="btn btn-success" onclick="saveText()"><i class="ti ti-check"></i> שמור טקסט</button>
           </div>
         </div>
       </div>
+      <!-- Docs list -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title"><i class="ti ti-help-circle"></i> שאלות במאגר <span id="faq-count" style="font-size:12px;color:#6c757d;font-weight:400">(0)</span></div>
-          <button class="btn btn-sm btn-outline" onclick="clearFaq()"><i class="ti ti-trash"></i> נקה</button>
+          <div class="card-title"><i class="ti ti-files"></i> מסמכים שנטענו <span id="docs-count" style="font-size:12px;color:#6c757d;font-weight:400">(0)</span></div>
+          <button class="btn btn-sm btn-outline" onclick="clearDocs()"><i class="ti ti-trash"></i> נקה הכל</button>
         </div>
-        <div class="card-body"><div class="kb-list" id="faq-list"></div></div>
+        <div class="card-body">
+          <div class="kb-list" id="docs-list"></div>
+          <div id="support-preview" style="margin-top:1rem;display:none">
+            <div style="font-size:12px;font-weight:600;color:#6c757d;margin-bottom:6px">תצוגה מקדימה של בסיס הידע:</div>
+            <textarea id="support-text-preview" style="width:100%;height:150px;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;resize:vertical;font-family:inherit;color:#555;background:#f8f9fa" readonly></textarea>
+            <div style="font-size:11px;color:#adb5bd;margin-top:4px" id="support-chars"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
+<!-- DASHBOARD -->
 <div class="page" id="page-dashboard">
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-num" id="stat-convs">0</div><div class="stat-lbl">שיחות</div></div>
     <div class="stat-card"><div class="stat-num" id="stat-trips">0</div><div class="stat-lbl">טיולים במאגר</div></div>
-    <div class="stat-card"><div class="stat-num" id="stat-faqs">0</div><div class="stat-lbl">שאלות שירות</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-docs">0</div><div class="stat-lbl">מסמכי שירות</div></div>
     <div class="stat-card"><div class="stat-num" id="stat-size">0</div><div class="stat-lbl">תווים נסרקו</div></div>
   </div>
   <div class="card">
@@ -198,14 +256,19 @@ body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gra
 <div class="toast" id="toast"><i class="ti ti-check" style="color:var(--ok)"></i><span id="toast-msg"></span></div>
 
 <script>
+// PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
 const API = '';
 let agentName = localStorage.getItem('agentName') || 'נציג';
 let activeConvId = null;
 let convPoll = null;
 let trips = JSON.parse(localStorage.getItem('kb-trips') || '[]');
-let faqs = JSON.parse(localStorage.getItem('kb-faqs') || '[]');
+let supportDocs = JSON.parse(localStorage.getItem('kb-support-docs') || '[]'); // [{name, type, chars, addedAt}]
+let supportText = localStorage.getItem('kb-support-text') || ''; // combined text from all docs
 
 document.getElementById('agent-name-display').textContent = agentName;
+if (supportText) document.getElementById('free-text').value = '';
 
 function setAgentName(){const n=prompt('שם נציג:',agentName);if(n){agentName=n;localStorage.setItem('agentName',n);document.getElementById('agent-name-display').textContent=n;}}
 
@@ -214,7 +277,7 @@ function showPage(id){
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   document.getElementById('tab-'+id).classList.add('active');
-  if(id==='knowledge'){renderTrips();renderFaqs();loadCacheStatus();}
+  if(id==='knowledge'){renderTrips();renderDocs();loadCacheStatus();}
   if(id==='dashboard')loadDashboard();
 }
 
@@ -225,6 +288,141 @@ function showKbTab(tab){
   document.getElementById('kbtab-'+tab).classList.add('active');
 }
 
+// ===== FILE UPLOAD =====
+function dragOver(e){e.preventDefault();document.getElementById('upload-zone').classList.add('drag-over');}
+function dragLeave(){document.getElementById('upload-zone').classList.remove('drag-over');}
+function dropFile(e){e.preventDefault();dragLeave();if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);}
+
+async function handleFile(file) {
+  if (!file) return;
+  const maxSize = 10 * 1024 * 1024;
+  if (file.size > maxSize) { showToast('הקובץ גדול מ-10MB'); return; }
+
+  setProcessing(true, 'מעבד קובץ: ' + file.name);
+  let text = '';
+
+  try {
+    if (file.name.endsWith('.txt')) {
+      text = await file.text();
+    } else if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+      const buf = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer: buf });
+      text = result.value;
+    } else if (file.name.endsWith('.pdf')) {
+      text = await extractPdfText(file);
+    } else {
+      showToast('סוג קובץ לא נתמך');
+      setProcessing(false);
+      return;
+    }
+
+    if (!text || text.trim().length < 10) {
+      showToast('לא ניתן לחלץ טקסט מהקובץ');
+      setProcessing(false);
+      return;
+    }
+
+    // Add to docs list
+    supportDocs.push({ name: file.name, type: file.name.split('.').pop().toUpperCase(), chars: text.length, addedAt: new Date().toISOString() });
+    supportText = supportText ? supportText + '\n\n=== ' + file.name + ' ===\n' + text : '=== ' + file.name + ' ===\n' + text;
+    saveSupportData();
+    renderDocs();
+    showToast('✅ ' + file.name + ' נטען בהצלחה — ' + text.length.toLocaleString() + ' תווים');
+  } catch(e) {
+    showToast('שגיאה בעיבוד הקובץ: ' + e.message);
+  }
+  setProcessing(false);
+  document.getElementById('file-input').value = '';
+}
+
+async function extractPdfText(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    setProcessing(true, 'מעבד עמוד ' + i + '/' + pdf.numPages);
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(item => item.str).join(' ') + '\n';
+  }
+  return text;
+}
+
+function saveText() {
+  const txt = document.getElementById('free-text').value.trim();
+  if (!txt) { showToast('הכנס טקסט קודם'); return; }
+  supportDocs.push({ name: 'טקסט חופשי', type: 'TXT', chars: txt.length, addedAt: new Date().toISOString() });
+  supportText = supportText ? supportText + '\n\n=== טקסט חופשי ===\n' + txt : '=== טקסט חופשי ===\n' + txt;
+  document.getElementById('free-text').value = '';
+  saveSupportData();
+  renderDocs();
+  showToast('✅ הטקסט נשמר — ' + txt.length.toLocaleString() + ' תווים');
+}
+
+function saveSupportData() {
+  localStorage.setItem('kb-support-docs', JSON.stringify(supportDocs));
+  localStorage.setItem('kb-support-text', supportText);
+  syncToServer();
+}
+
+function clearDocs() {
+  if (!confirm('למחוק את כל מסמכי שירות הלקוחות?')) return;
+  supportDocs = []; supportText = '';
+  localStorage.removeItem('kb-support-docs');
+  localStorage.removeItem('kb-support-text');
+  syncToServer();
+  renderDocs();
+  showToast('הוסר');
+}
+
+function removeDoc(idx) {
+  supportDocs.splice(idx, 1);
+  // Rebuild supportText from remaining docs (simplified - just clear and show message)
+  supportText = supportDocs.length > 0 ? '(נא לטעון מחדש את המסמכים שנמחקו)' : '';
+  saveSupportData();
+  renderDocs();
+  showToast('המסמך הוסר');
+}
+
+function renderDocs() {
+  const el = document.getElementById('docs-list');
+  const count = document.getElementById('docs-count');
+  const preview = document.getElementById('support-preview');
+  count.textContent = '(' + supportDocs.length + ')';
+  document.getElementById('stat-docs').textContent = supportDocs.length;
+
+  const icons = { PDF: '📄', DOCX: '📝', DOC: '📝', TXT: '📋' };
+
+  if (!supportDocs.length) {
+    el.innerHTML = '<div style="text-align:center;color:#adb5bd;padding:1.5rem;font-size:13px"><i class="ti ti-files" style="font-size:28px;display:block;margin-bottom:6px"></i>לא הועלו מסמכים עדיין</div>';
+    preview.style.display = 'none';
+    return;
+  }
+
+  el.innerHTML = supportDocs.map((doc, idx) => `
+    <div class="doc-item">
+      <div class="doc-icon">${icons[doc.type] || '📄'}</div>
+      <div class="doc-info">
+        <div class="doc-name">${doc.name}</div>
+        <div class="doc-meta">${doc.type} · ${doc.chars.toLocaleString()} תווים · ${new Date(doc.addedAt).toLocaleDateString('he-IL')}</div>
+      </div>
+      <button class="btn btn-sm btn-danger" onclick="removeDoc(${idx})"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+
+  if (supportText) {
+    preview.style.display = 'block';
+    document.getElementById('support-text-preview').value = supportText.slice(0, 500) + (supportText.length > 500 ? '...' : '');
+    document.getElementById('support-chars').textContent = 'סה"כ: ' + supportText.length.toLocaleString() + ' תווים בבסיס הידע';
+  }
+}
+
+function setProcessing(show, text) {
+  const bar = document.getElementById('processing-bar');
+  if (show) { bar.classList.add('show'); document.getElementById('processing-text').textContent = text || 'מעבד...'; }
+  else bar.classList.remove('show');
+}
+
+// ===== TRIPS =====
 function saveTrips(){localStorage.setItem('kb-trips',JSON.stringify(trips));syncToServer();}
 
 function addTrip(){
@@ -268,39 +466,15 @@ function renderTrips(){
     </div>`).join('');
 }
 
-function saveFaqs(){localStorage.setItem('kb-faqs',JSON.stringify(faqs));syncToServer();}
-
-function addFaq(){
-  const q=document.getElementById('faq-q').value.trim();
-  const a=document.getElementById('faq-a').value.trim();
-  if(!q||!a){showToast('נא למלא שאלה ותשובה');return;}
-  faqs.push({q,a,addedAt:new Date().toISOString()});
-  saveFaqs();renderFaqs();
-  document.getElementById('faq-q').value='';
-  document.getElementById('faq-a').value='';
-  showToast('השאלה נוספה ✅');
-}
-
-function removeFaq(idx){faqs.splice(idx,1);saveFaqs();renderFaqs();showToast('הוסרה');}
-function clearFaq(){if(!confirm('למחוק את כל השאלות?'))return;faqs=[];saveFaqs();renderFaqs();}
-
-function renderFaqs(){
-  const el=document.getElementById('faq-list');
-  document.getElementById('faq-count').textContent='('+faqs.length+')';
-  document.getElementById('stat-faqs').textContent=faqs.length;
-  if(!faqs.length){el.innerHTML='<div style="text-align:center;color:#adb5bd;padding:1.5rem;font-size:13px"><i class="ti ti-help-circle" style="font-size:28px;display:block;margin-bottom:6px"></i>אין שאלות במאגר</div>';return;}
-  el.innerHTML=faqs.map((item,idx)=>`
-    <div class="kb-item">
-      <div class="kb-item-info">
-        <div class="kb-item-name">❓ ${item.q}</div>
-        <div class="kb-item-preview">💬 ${item.a}</div>
-      </div>
-      <button class="btn btn-sm btn-danger" onclick="removeFaq(${idx})"><i class="ti ti-trash"></i></button>
-    </div>`).join('');
-}
-
+// ===== SYNC TO SERVER =====
 async function syncToServer(){
-  try{await fetch(API+'/api/kb-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trips,faqs})});}catch(e){}
+  try{
+    await fetch(API+'/api/kb-update',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ trips, supportText })
+    });
+  }catch(e){}
 }
 
 async function triggerScan(){
@@ -337,6 +511,7 @@ async function loadCacheStatus(){
   }catch(e){}
 }
 
+// ===== CONVERSATIONS =====
 function timeAgo(d){if(!d)return'';const diff=Math.floor((Date.now()-new Date(d))/1000);if(diff<60)return'עכשיו';if(diff<3600)return Math.floor(diff/60)+' דק\'';return Math.floor(diff/3600)+' שע\'';}
 
 async function loadConversations(){
@@ -363,7 +538,6 @@ async function openConv(id){
   activeConvId=id;clearInterval(convPoll);
   try{const r=await fetch(API+'/api/conversations/'+id);renderChat(await r.json());convPoll=setInterval(()=>refreshChat(id),3000);}catch(e){}
 }
-
 async function refreshChat(id){if(activeConvId!==id)return;try{const r=await fetch(API+'/api/conversations/'+id);renderChat(await r.json());}catch(e){}}
 
 function renderChat(conv){
@@ -415,22 +589,25 @@ async function loadDashboard(){
     const d=await r.json();
     document.getElementById('system-status').innerHTML=`
       <div>🔌 שרת: <strong style="color:var(--ok)">פעיל ✅</strong></div>
-      <div>📦 מאגר ידע: <strong>${d.hasCache?'✅ עדכני':'⚠️ טרם נסרק'}</strong></div>
-      <div>🚢 טיולים במאגר: <strong>${trips.length}</strong></div>
-      <div>❓ שאלות שירות: <strong>${faqs.length}</strong></div>
-      <div>📝 תווים נסרקו: <strong>${(d.contentLength||0).toLocaleString()}</strong></div>
-      <div>🕐 סריקה אחרונה: <strong>${d.lastScanned?new Date(d.lastScanned).toLocaleString('he-IL'):'—'}</strong></div>
-      <div>🔄 סריקה אוטומטית: <strong>כל 24 שעות</strong></div>`;
+      <div>📦 מאגר טיולים: <strong>${trips.length} קישורים</strong></div>
+      <div>📄 מסמכי שירות: <strong>${supportDocs.length} קבצים</strong></div>
+      <div>📝 תווי שירות: <strong>${supportText.length.toLocaleString()}</strong></div>
+      <div>🔍 תווים נסרקו: <strong>${(d.contentLength||0).toLocaleString()}</strong></div>
+      <div>🕐 סריקה אחרונה: <strong>${d.lastScanned?new Date(d.lastScanned).toLocaleString('he-IL'):'—'}</strong></div>`;
   }catch(e){document.getElementById('system-status').innerHTML='<span style="color:var(--danger)">❌ לא ניתן להתחבר לשרת</span>';}
 }
 
-function showToast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
+function showToast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3500);}
 
+// Init
 loadConversations();
 setInterval(loadConversations,5000);
-renderTrips();renderFaqs();
+renderTrips();
+renderDocs();
 loadCacheStatus();
 setInterval(loadCacheStatus,15000);
+// Sync support text on load
+if(supportText) syncToServer();
 </script>
 </body>
 </html>
