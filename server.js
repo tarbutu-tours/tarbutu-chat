@@ -15,11 +15,79 @@ app.use(express.static(__dirname));
 
 const conversations = new Map();
 
-const SEARCH_KEYWORDS = ['קרוז','טיול','מחיר','תאריך','יציאה','אונייה','ספינה','לפלנד','יפן','איסלנד','פיורד','בלטי','קנרי','גלאפגוס','פרו','קוריאה','ונציה','אוסטרליה','דנובה','ריין','שייט','כולל','ימים','לילות','עלות','הרשמה','ביטול','מדריך','מסלול','יעד','2025','2026','2027'];
+var PAGES_TO_SCAN = [
+  'site:tarbutu.co.il קרוזים 2026 2027 תאריכים אוניה',
+  'site:tarbutu.co.il שייט נהרות 2026 2027 דנובה ריין',
+  'site:tarbutu.co.il קרוז יפן מזרח הרחוק 2026 2027',
+  'site:tarbutu.co.il קרוז ים בלטי פיורדים איסלנד 2026',
+  'site:tarbutu.co.il קרוז ים תיכון אלסקה דרום אמריקה 2026',
+  'site:tarbutu.co.il שייט נהר דאורו פורטוגל 2026 2027'
+];
 
-function needsSearch(message) {
-  var lower = message.toLowerCase();
-  return SEARCH_KEYWORDS.some(function(k) { return lower.includes(k); });
+var siteCache = {
+  content: '',
+  lastScanned: null,
+  isScanning: false,
+  pagesScanned: 0
+};
+
+var CACHE_TTL = 24 * 60 * 60 * 1000;
+
+async function searchOnePage(query) {
+  try {
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'web-search-2025-03-05'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        system: 'אתה סוכן חיפוש. חפש מידע מפורט מאתר tarbutu.co.il. החזר את כל הפרטים: שם טיול, תאריך יציאה, מספר ימים, שם אונייה, מסלול, מה כולל.',
+        messages: [{ role: 'user', content: query }]
+      })
+    });
+    if (!res.ok) return '';
+    var data = await res.json();
+    return data.content.filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; }).join('\n');
+  } catch(e) {
+    console.log('שגיאת חיפוש:', e.message);
+    return '';
+  }
+}
+
+async function scanSite() {
+  if (siteCache.isScanning) return;
+  siteCache.isScanning = true;
+  siteCache.pagesScanned = 0;
+  console.log('מתחיל סריקה עמוקה...');
+  var allContent = [];
+  for (var i = 0; i < PAGES_TO_SCAN.length; i++) {
+    console.log('סורק ' + (i+1) + '/' + PAGES_TO_SCAN.length);
+    var content = await searchOnePage(PAGES_TO_SCAN[i]);
+    if (content) allContent.push(content);
+    siteCache.pagesScanned = i + 1;
+    await new Promise(function(r) { setTimeout(r, 2000); });
+  }
+  if (allContent.length > 0) {
+    siteCache.content = allContent.join('\n\n---\n\n');
+    siteCache.lastScanned = new Date();
+    console.log('סריקה הושלמה! ' + siteCache.content.length + ' תווים');
+  }
+  siteCache.isScanning = false;
+}
+
+scanSite();
+setInterval(scanSite, CACHE_TTL);
+
+var SIMPLE = ['שלום','היי','תודה','להתראות','בוקר','ערב','מה שלומך','מי אתה'];
+function isSimple(msg) {
+  var l = msg.toLowerCase();
+  return SIMPLE.some(function(k) { return l.includes(k); }) && msg.length < 20;
 }
 
 app.post('/api/chat', async function(req, res) {
@@ -28,68 +96,28 @@ app.post('/api/chat', async function(req, res) {
   var history = Array.isArray(req.body.history) ? req.body.history : [];
   if (!message) return res.status(400).json({ error: 'חסר הודעה' });
   var conv = conversations.get(sessionId);
-  if (conv && conv.agentMode) {
-    return res.json({ type: 'waiting', message: 'נציג אנושי בשיחה' });
-  }
-  if (!needsSearch(message)) {
-    try {
-      var quickRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
-          system: 'אתה העוזר של תרבותו. ענה בעברית בצורה חמה וקצרה. טלפון: 03-5260090',
-          messages: history.concat([{ role: 'user', content: message }])
-        })
-      });
-      var qd = await quickRes.json();
-      var qReply = qd.content && qd.content[0] ? qd.content[0].text : 'שלום! במה אוכל לעזור?';
-      if (!conversations.has(sessionId)) conversations.set(sessionId, { id: sessionId, history: [], agentMode: false, createdAt: new Date() });
-      var qc = conversations.get(sessionId);
-      qc.history.push({ role: 'user', content: message });
-      qc.history.push({ role: 'assistant', content: qReply });
-      qc.lastMessage = message; qc.updatedAt = new Date();
-      return res.json({ type: 'bot', message: qReply, sessionId: sessionId });
-    } catch(e) {
-      return res.status(500).json({ error: e.message });
-    }
-  }
-  return res.json({ type: 'searching', message: 'מחפש...' });
-});
-
-app.post('/api/chat-search', async function(req, res) {
-  var sessionId = req.body.sessionId;
-  var message = req.body.message;
-  var history = Array.isArray(req.body.history) ? req.body.history : [];
+  if (conv && conv.agentMode) return res.json({ type: 'waiting', message: 'נציג אנושי בשיחה' });
   try {
-    var siteContent = '';
-    try {
-      var searchRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'web-search-2025-03-05' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1500,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          system: 'אתה סוכן חיפוש. חפש עם site:tarbutu.co.il. ענה בעברית עם כל הפרטים.',
-          messages: [{ role: 'user', content: 'site:tarbutu.co.il ' + message }]
-        })
-      });
-      if (searchRes.ok) {
-        var sd = await searchRes.json();
-        siteContent = sd.content.filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; }).join('\n');
+    var knowledge = '';
+    if (!isSimple(message)) {
+      if (siteCache.content) {
+        knowledge = siteCache.content;
+      } else {
+        if (!siteCache.isScanning) scanSite();
+        knowledge = 'המערכת עדיין סורקת את האתר. לפרטים מדויקים: 03-5260090 | tarbutu.co.il';
       }
-    } catch(e) { console.log('search error:', e.message); }
+    }
+    var scanDate = siteCache.lastScanned ? siteCache.lastScanned.toLocaleDateString('he-IL') : 'היום';
+    var sys = 'אתה העוזר החכם של חברת "תרבותו" – חברת טיולי תרבות ישראלית.\n\nחוקים:\n- ענה תמיד בעברית\n- תן תשובות מלאות ומפורטות\n- ציין תאריכים, שמות אוניות ומסלולים מדויקים\n- אל תמציא נתונים\n- לגבי מחירים הפנה ל-03-5260090\n\n';
+    if (knowledge) {
+      sys += 'מידע עדכני מהאתר (נסרק ' + scanDate + '):\n' + knowledge;
+    } else {
+      sys += 'טלפון: 03-5260090 | tarbutu.co.il';
+    }
     var chatRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
-        system: 'אתה העוזר של תרבותו. ענה בעברית. תן תשובות מלאות.\nמידע:\n' + (siteContent || 'קרוזים וטיולים') + '\nטלפון: 03-5260090',
-        messages: history.concat([{ role: 'user', content: message }])
-      })
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 3000, system: sys, messages: history.concat([{ role: 'user', content: message }]) })
     });
     var chatData = await chatRes.json();
     var reply = chatData.content && chatData.content[0] ? chatData.content[0].text : 'מצטער, נסה שוב.';
@@ -104,12 +132,21 @@ app.post('/api/chat-search', async function(req, res) {
   }
 });
 
+app.get('/api/cache-status', function(req, res) {
+  res.json({ hasCache: !!siteCache.content, lastScanned: siteCache.lastScanned, contentLength: siteCache.content.length, isScanning: siteCache.isScanning, pagesScanned: siteCache.pagesScanned, totalPages: PAGES_TO_SCAN.length });
+});
+
+app.post('/api/scan-now', function(req, res) {
+  if (siteCache.isScanning) return res.json({ message: 'סריקה פעילה (' + siteCache.pagesScanned + '/' + PAGES_TO_SCAN.length + ')' });
+  scanSite();
+  res.json({ message: 'סריקה עמוקה התחילה!' });
+});
+
 app.get('/api/conversations', function(req, res) {
   var list = Array.from(conversations.values()).map(function(c) {
     return { id: c.id, lastMessage: c.lastMessage || '', agentMode: c.agentMode, messageCount: c.history.length, createdAt: c.createdAt, updatedAt: c.updatedAt };
   });
-  list.sort(function(a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
-  res.json(list);
+  res.json(list.sort(function(a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); }));
 });
 
 app.get('/api/conversations/:id', function(req, res) {
@@ -121,8 +158,7 @@ app.get('/api/conversations/:id', function(req, res) {
 app.post('/api/conversations/:id/takeover', function(req, res) {
   var c = conversations.get(req.params.id);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
-  c.agentMode = true;
-  c.agentName = req.body.agentName || 'נציג';
+  c.agentMode = true; c.agentName = req.body.agentName || 'נציג';
   res.json({ success: true });
 });
 
@@ -130,8 +166,7 @@ app.post('/api/conversations/:id/agent-message', function(req, res) {
   var c = conversations.get(req.params.id);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
   c.history.push({ role: 'agent', content: req.body.message, agentName: req.body.agentName || 'נציג', time: new Date() });
-  c.agentMessage = req.body.message;
-  c.agentName = req.body.agentName || 'נציג';
+  c.agentMessage = req.body.message; c.agentName = req.body.agentName || 'נציג';
   res.json({ success: true });
 });
 
@@ -145,27 +180,18 @@ app.post('/api/conversations/:id/release', function(req, res) {
 app.get('/api/conversations/:id/poll', function(req, res) {
   var c = conversations.get(req.params.id);
   if (!c) return res.json({ type: 'none' });
-  if (c.agentMessage) {
-    var m = c.agentMessage;
-    var n = c.agentName;
-    c.agentMessage = null;
-    return res.json({ type: 'agent', message: m, agentName: n });
-  }
+  if (c.agentMessage) { var m=c.agentMessage; var n=c.agentName; c.agentMessage=null; return res.json({ type: 'agent', message: m, agentName: n }); }
   res.json({ type: 'none' });
 });
 
 app.get('/admin', function(req, res) {
-  var p1 = path.join(__dirname, 'public', 'admin.html');
-  var p2 = path.join(__dirname, 'admin.html');
-  res.sendFile(fs.existsSync(p1) ? p1 : p2);
+  var p1=path.join(__dirname,'public','admin.html'); var p2=path.join(__dirname,'admin.html');
+  res.sendFile(fs.existsSync(p1)?p1:p2);
 });
 
 app.get('/', function(req, res) {
-  var p1 = path.join(__dirname, 'public', 'index.html');
-  var p2 = path.join(__dirname, 'index.html');
-  res.sendFile(fs.existsSync(p1) ? p1 : p2);
+  var p1=path.join(__dirname,'public','index.html'); var p2=path.join(__dirname,'index.html');
+  res.sendFile(fs.existsSync(p1)?p1:p2);
 });
 
-app.listen(PORT, function() {
-  console.log('Server running on port ' + PORT);
-});
+app.listen(PORT, function() { console.log('Server running on port ' + PORT); });
