@@ -15,31 +15,64 @@ app.use(express.static(__dirname));
 
 const conversations = new Map();
 
+const SEARCH_KEYWORDS = ['קרוז','טיול','מחיר','תאריך','יציאה','אונייה','ספינה','לפלנד','יפן','איסלנד','פיורד','בלטי','קנרי','גלאפגוס','פרו','קוריאה','ונציה','אוסטרליה','דנובה','ריין','שייט','כולל','ימים','לילות','עלות','הרשמה','ביטול','מדריך','מסלול','יעד','2025','2026','2027'];
+
+function needsSearch(message) {
+  var lower = message.toLowerCase();
+  return SEARCH_KEYWORDS.some(function(k) { return lower.includes(k); });
+}
+
 app.post('/api/chat', async function(req, res) {
   var sessionId = req.body.sessionId;
   var message = req.body.message;
-  var history = req.body.history || [];
+  var history = Array.isArray(req.body.history) ? req.body.history : [];
   if (!message) return res.status(400).json({ error: 'חסר הודעה' });
   var conv = conversations.get(sessionId);
   if (conv && conv.agentMode) {
     return res.json({ type: 'waiting', message: 'נציג אנושי בשיחה' });
   }
+  if (!needsSearch(message)) {
+    try {
+      var quickRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          system: 'אתה העוזר של תרבותו. ענה בעברית בצורה חמה וקצרה. טלפון: 03-5260090',
+          messages: history.concat([{ role: 'user', content: message }])
+        })
+      });
+      var qd = await quickRes.json();
+      var qReply = qd.content && qd.content[0] ? qd.content[0].text : 'שלום! במה אוכל לעזור?';
+      if (!conversations.has(sessionId)) conversations.set(sessionId, { id: sessionId, history: [], agentMode: false, createdAt: new Date() });
+      var qc = conversations.get(sessionId);
+      qc.history.push({ role: 'user', content: message });
+      qc.history.push({ role: 'assistant', content: qReply });
+      qc.lastMessage = message; qc.updatedAt = new Date();
+      return res.json({ type: 'bot', message: qReply, sessionId: sessionId });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+  return res.json({ type: 'searching', message: 'מחפש...' });
+});
+
+app.post('/api/chat-search', async function(req, res) {
+  var sessionId = req.body.sessionId;
+  var message = req.body.message;
+  var history = Array.isArray(req.body.history) ? req.body.history : [];
   try {
     var siteContent = '';
     try {
       var searchRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'web-search-2025-03-05'
-        },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'web-search-2025-03-05' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 1500,
           tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          system: 'אתה סוכן חיפוש. חפש עם site:tarbutu.co.il. ענה בעברית.',
+          system: 'אתה סוכן חיפוש. חפש עם site:tarbutu.co.il. ענה בעברית עם כל הפרטים.',
           messages: [{ role: 'user', content: 'site:tarbutu.co.il ' + message }]
         })
       });
@@ -47,34 +80,24 @@ app.post('/api/chat', async function(req, res) {
         var sd = await searchRes.json();
         siteContent = sd.content.filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; }).join('\n');
       }
-    } catch(e) {
-      console.log('search error:', e.message);
-    }
-    var msgs = history.concat([{ role: 'user', content: message }]);
+    } catch(e) { console.log('search error:', e.message); }
     var chatRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 3000,
         system: 'אתה העוזר של תרבותו. ענה בעברית. תן תשובות מלאות.\nמידע:\n' + (siteContent || 'קרוזים וטיולים') + '\nטלפון: 03-5260090',
-        messages: msgs
+        messages: history.concat([{ role: 'user', content: message }])
       })
     });
     var chatData = await chatRes.json();
     var reply = chatData.content && chatData.content[0] ? chatData.content[0].text : 'מצטער, נסה שוב.';
-    if (!conversations.has(sessionId)) {
-      conversations.set(sessionId, { id: sessionId, history: [], agentMode: false, createdAt: new Date() });
-    }
+    if (!conversations.has(sessionId)) conversations.set(sessionId, { id: sessionId, history: [], agentMode: false, createdAt: new Date() });
     var c = conversations.get(sessionId);
     c.history.push({ role: 'user', content: message });
     c.history.push({ role: 'assistant', content: reply });
-    c.lastMessage = message;
-    c.updatedAt = new Date();
+    c.lastMessage = message; c.updatedAt = new Date();
     res.json({ type: 'bot', message: reply, sessionId: sessionId });
   } catch(err) {
     res.status(500).json({ error: err.message });
