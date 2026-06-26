@@ -15,11 +15,46 @@ app.use(express.static(__dirname));
 
 const conversations = new Map();
 
+const CACHE_FILE = path.join(__dirname, 'cache.json');
+const KB_FILE = path.join(__dirname, 'kb.json');
+
 var kbTrips = [];
 var kbSupportText = '';
-
 var siteCache = { content: '', lastScanned: null, isScanning: false, pagesScanned: 0, totalPages: 0 };
 var CACHE_TTL = 24 * 60 * 60 * 1000;
+
+function loadFromDisk() {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      var data = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+      siteCache.content = data.content || '';
+      siteCache.lastScanned = data.lastScanned ? new Date(data.lastScanned) : null;
+      console.log('מטמון נטען: ' + siteCache.content.length + ' תווים');
+    }
+  } catch(e) { console.log('שגיאת טעינה:', e.message); }
+  try {
+    if (fs.existsSync(KB_FILE)) {
+      var kb = JSON.parse(fs.readFileSync(KB_FILE, 'utf8'));
+      kbTrips = kb.trips || [];
+      kbSupportText = kb.supportText || '';
+      console.log('מאגר נטען: ' + kbTrips.length + ' טיולים');
+    }
+  } catch(e) { console.log('שגיאת טעינה:', e.message); }
+}
+
+function saveCacheToDisk() {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({ content: siteCache.content, lastScanned: siteCache.lastScanned }), 'utf8');
+    console.log('מטמון נשמר: ' + siteCache.content.length + ' תווים');
+  } catch(e) { console.log('שגיאת שמירה:', e.message); }
+}
+
+function saveKbToDisk() {
+  try {
+    fs.writeFileSync(KB_FILE, JSON.stringify({ trips: kbTrips, supportText: kbSupportText }), 'utf8');
+    console.log('מאגר נשמר לדיסק');
+  } catch(e) { console.log('שגיאת שמירה:', e.message); }
+}
 
 async function fetchPage(url) {
   try {
@@ -41,24 +76,22 @@ async function fetchPage(url) {
 
 async function scanSite() {
   if (siteCache.isScanning) return;
-  if (!kbTrips.length) { console.log('אין קישורים לסריקה'); return; }
+  if (!kbTrips.length) { console.log('אין קישורים'); return; }
   siteCache.isScanning = true;
   siteCache.pagesScanned = 0;
   siteCache.totalPages = kbTrips.length;
-  console.log('מתחיל סריקה של ' + kbTrips.length + ' טיולים...');
   var allContent = [];
   for (var i = 0; i < kbTrips.length; i++) {
-    var item = kbTrips[i];
-    console.log('סורק ' + (i+1) + '/' + kbTrips.length + ': ' + item.name);
-    var content = await fetchPage(item.url);
-    if (content) allContent.push('=== ' + item.name + ' ===\n' + content);
+    console.log('סורק ' + (i+1) + '/' + kbTrips.length + ': ' + kbTrips[i].name);
+    var content = await fetchPage(kbTrips[i].url);
+    if (content) allContent.push('=== ' + kbTrips[i].name + ' ===\n' + content);
     siteCache.pagesScanned = i + 1;
     await new Promise(function(r) { setTimeout(r, 2000); });
   }
   if (allContent.length > 0) {
     siteCache.content = allContent.join('\n\n---\n\n');
     siteCache.lastScanned = new Date();
-    console.log('סריקה הושלמה! ' + siteCache.content.length + ' תווים');
+    saveCacheToDisk();
   }
   siteCache.isScanning = false;
 }
@@ -68,19 +101,18 @@ setInterval(function() { if (kbTrips.length > 0) scanSite(); }, CACHE_TTL);
 app.post('/api/kb-update', function(req, res) {
   if (req.body.trips) kbTrips = req.body.trips;
   if (req.body.supportText !== undefined) kbSupportText = req.body.supportText;
-  console.log('מאגר עודכן — ' + kbTrips.length + ' טיולים, ' + kbSupportText.length + ' תווי שירות');
+  saveKbToDisk();
   res.json({ success: true });
 });
 
 function buildSystem(chatType, knowledge) {
   var supportSection = kbSupportText ? '\n\n=== מידע שירות לקוחות ===\n' + kbSupportText : '';
   var scanDate = siteCache.lastScanned ? siteCache.lastScanned.toLocaleDateString('he-IL') : 'היום';
-
   if (chatType === 'support') {
-    return 'אתה נציג שירות לקוחות של חברת "תרבותו".\n\nחוקים:\n- ענה תמיד בעברית\n- היה חם, אמפתי ומועיל\n- ענה לפי המידע שבמאגר בלבד\n- לשאלות שדורשות בדיקה אישית — הפנה ל-03-5260090\n- אל תמציא מידע שלא קיים\n\n' + supportSection + (knowledge ? '\n\nמידע נוסף:\n' + knowledge : '');
+    return 'אתה נציג שירות לקוחות של חברת "תרבותו".\n\nחוקים:\n- ענה תמיד בעברית\n- היה חם ומועיל\n- ענה לפי המידע שבמאגר בלבד\n- לשאלות שדורשות בדיקה אישית הפנה ל-03-5260090\n\n' + supportSection;
   }
-
-  return 'אתה יועץ מכירות של חברת "תרבותו" – חברת טיולי תרבות ישראלית.\n\nחוקים:\n- ענה תמיד בעברית\n- היה נלהב ומכירתי\n- תן מידע מפורט: תאריכים, אוניות, מסלולים\n- אם יש מספר תאריכים — ציין את כולם\n- לגבי מחירים הפנה ל-03-5260090\n- אל תמציא נתונים\n\n' + (knowledge ? 'מידע עדכני מהאתר (נסרק ' + scanDate + '):\n' + knowledge : 'טלפון: 03-5260090 | tarbutu.co.il');
+  return 'אתה יועץ מכירות של חברת "תרבותו".\n\nחוקים:\n- ענה תמיד בעברית\n- היה נלהב ומכירתי\n- תן מידע מפורט: תאריכים, אוניות, מסלולים\n- ציין את כל התאריכים הקיימים\n- לגבי מחירים הפנה ל-03-5260090\n- אל תמציא נתונים\n\n' +
+    (knowledge ? 'מידע מהאתר (נסרק ' + scanDate + '):\n' + knowledge : 'טלפון: 03-5260090 | tarbutu.co.il');
 }
 
 var SIMPLE = ['שלום','היי','תודה','להתראות','בוקר','ערב','מה שלומך','מי אתה'];
@@ -118,7 +150,7 @@ app.post('/api/chat', async function(req, res) {
 });
 
 app.get('/api/cache-status', function(req, res) {
-  res.json({ hasCache: !!siteCache.content, lastScanned: siteCache.lastScanned, contentLength: siteCache.content.length, isScanning: siteCache.isScanning, pagesScanned: siteCache.pagesScanned, totalPages: siteCache.totalPages || kbTrips.length, supportTextLength: kbSupportText.length });
+  res.json({ hasCache: !!siteCache.content, lastScanned: siteCache.lastScanned, contentLength: siteCache.content.length, isScanning: siteCache.isScanning, pagesScanned: siteCache.pagesScanned, totalPages: siteCache.totalPages || kbTrips.length, savedToDisk: fs.existsSync(CACHE_FILE) });
 });
 
 app.post('/api/scan-now', function(req, res) {
@@ -180,4 +212,5 @@ app.get('/', function(req, res) {
   res.sendFile(fs.existsSync(p1)?p1:p2);
 });
 
+loadFromDisk();
 app.listen(PORT, function() { console.log('Server running on port ' + PORT); });
