@@ -52,26 +52,52 @@ function saveCacheToDisk() {
 function saveKbToDisk() {
   try {
     fs.writeFileSync(KB_FILE, JSON.stringify({ trips: kbTrips, supportText: kbSupportText }), 'utf8');
-    console.log('מאגר נשמר לדיסק');
+    console.log('מאגר נשמר');
   } catch(e) { console.log('שגיאת שמירה:', e.message); }
 }
 
-async function fetchPage(url) {
+function extractTripName(url) {
+  try {
+    var postMatch = url.match(/post(\d+)/);
+    if (postMatch) return 'post' + postMatch[1];
+    var parts = url.replace(/\/$/, '').split('/');
+    return parts[parts.length - 1] || url;
+  } catch(e) { return url; }
+}
+
+async function fetchTripInfo(trip) {
+  var name = trip.name || extractTripName(trip.url);
+  var url = trip.url;
   try {
     var res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'web-search-2025-03-05' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'web-search-2025-03-05'
+      },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6', max_tokens: 2000,
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        system: 'אתה סוכן חיפוש. סרוק את הכתובת והחזר את כל הפרטים: שם טיול, תאריך יציאה, תאריך חזרה, מספר ימים, שם אונייה, קוד טיול, מסלול, מדינות, מה כולל.',
-        messages: [{ role: 'user', content: 'סרוק את הדף הזה: ' + url }]
+        system: 'אתה סוכן חיפוש של תרבותו. חפש מידע מפורט על הטיול מהאתר tarbutu.co.il. החזר: שם טיול, קוד טיול, תאריך יציאה, תאריך חזרה, מספר ימים, שם אונייה, מדינות, מסלול, מה כולל.',
+        messages: [{ role: 'user', content: 'חפש מידע על הטיול הזה:\nכתובת: ' + url + '\nשם: ' + name + '\n\nחפש: ' + url }]
       })
     });
     if (!res.ok) return '';
     var data = await res.json();
-    return data.content.filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('\n');
-  } catch(e) { console.log('שגיאת סריקה:', e.message); return ''; }
+    var text = data.content.filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; }).join('\n');
+    if (text && text.length > 50) {
+      console.log('נמצא מידע: ' + name + ' (' + text.length + ' תווים)');
+      return text;
+    }
+    console.log('לא נמצא מידע: ' + name);
+    return '';
+  } catch(e) {
+    console.log('שגיאה: ' + name + ' - ' + e.message);
+    return '';
+  }
 }
 
 async function scanSite() {
@@ -80,18 +106,21 @@ async function scanSite() {
   siteCache.isScanning = true;
   siteCache.pagesScanned = 0;
   siteCache.totalPages = kbTrips.length;
+  console.log('סריקה של ' + kbTrips.length + ' טיולים...');
   var allContent = [];
   for (var i = 0; i < kbTrips.length; i++) {
-    console.log('סורק ' + (i+1) + '/' + kbTrips.length + ': ' + kbTrips[i].name);
-    var content = await fetchPage(kbTrips[i].url);
-    if (content) allContent.push('=== ' + kbTrips[i].name + ' ===\n' + content);
+    var trip = kbTrips[i];
+    console.log('סורק ' + (i+1) + '/' + kbTrips.length + ': ' + trip.name);
+    var content = await fetchTripInfo(trip);
+    if (content) allContent.push('=== ' + trip.name + ' ===\nקישור: ' + trip.url + '\n' + content);
     siteCache.pagesScanned = i + 1;
-    await new Promise(function(r) { setTimeout(r, 2000); });
+    await new Promise(function(r) { setTimeout(r, 3000); });
   }
   if (allContent.length > 0) {
     siteCache.content = allContent.join('\n\n---\n\n');
     siteCache.lastScanned = new Date();
     saveCacheToDisk();
+    console.log('סריקה הושלמה! ' + siteCache.content.length + ' תווים');
   }
   siteCache.isScanning = false;
 }
@@ -102,6 +131,7 @@ app.post('/api/kb-update', function(req, res) {
   if (req.body.trips) kbTrips = req.body.trips;
   if (req.body.supportText !== undefined) kbSupportText = req.body.supportText;
   saveKbToDisk();
+  console.log('מאגר עודכן: ' + kbTrips.length + ' טיולים');
   res.json({ success: true });
 });
 
@@ -109,14 +139,13 @@ function buildSystem(chatType, knowledge) {
   var supportSection = kbSupportText ? '\n\n=== מידע שירות לקוחות ===\n' + kbSupportText : '';
   var scanDate = siteCache.lastScanned ? siteCache.lastScanned.toLocaleDateString('he-IL') : 'היום';
   if (chatType === 'support') {
-    return 'אתה נציג שירות לקוחות של חברת "תרבותו".\n\nחוקים:\n- ענה תמיד בעברית\n- היה חם ומועיל\n- ענה לפי המידע שבמאגר בלבד\n- לשאלות שדורשות בדיקה אישית הפנה ל-03-5260090\n\n' + supportSection;
+    return 'אתה נציג שירות לקוחות של חברת "תרבותו".\n\nחוקים:\n- ענה תמיד בעברית\n- היה חם ומועיל\n- ענה לפי המידע שבמאגר בלבד\n- לשאלות אישיות הפנה ל-03-5260090\n- אל תמציא מידע\n' + supportSection + (knowledge ? '\nמידע נוסף:\n' + knowledge : '');
   }
-  return 'אתה יועץ מכירות של חברת "תרבותו".\n\nחוקים:\n- ענה תמיד בעברית\n- היה נלהב ומכירתי\n- תן מידע מפורט: תאריכים, אוניות, מסלולים\n- ציין את כל התאריכים הקיימים\n- לגבי מחירים הפנה ל-03-5260090\n- אל תמציא נתונים\n\n' +
-    (knowledge ? 'מידע מהאתר (נסרק ' + scanDate + '):\n' + knowledge : 'טלפון: 03-5260090 | tarbutu.co.il');
+  return 'אתה יועץ מכירות של חברת "תרבותו" – חברת טיולי תרבות ישראלית.\n\nחוקים:\n- ענה תמיד בעברית\n- היה נלהב ומכירתי\n- תן מידע מפורט: תאריכים, אוניות, מסלולים, קודי טיול\n- ציין את כל התאריכים הקיימים\n- לגבי מחירים הפנה ל-03-5260090\n- אל תמציא נתונים\n\n' + (knowledge ? 'מידע עדכני מהאתר (נסרק ' + scanDate + '):\n' + knowledge : 'טלפון: 03-5260090 | tarbutu.co.il');
 }
 
 var SIMPLE = ['שלום','היי','תודה','להתראות','בוקר','ערב','מה שלומך','מי אתה'];
-function isSimple(msg) { return SIMPLE.some(function(k){return msg.toLowerCase().includes(k);}) && msg.length < 20; }
+function isSimple(msg) { return SIMPLE.some(function(k) { return msg.toLowerCase().includes(k); }) && msg.length < 20; }
 
 app.post('/api/chat', async function(req, res) {
   var sessionId = req.body.sessionId;
@@ -130,7 +159,10 @@ app.post('/api/chat', async function(req, res) {
     var knowledge = '';
     if (!isSimple(message)) {
       if (siteCache.content) knowledge = siteCache.content;
-      else if (kbTrips.length > 0 && !siteCache.isScanning) scanSite();
+      else if (kbTrips.length > 0 && !siteCache.isScanning) {
+        scanSite();
+        knowledge = 'המערכת סורקת. לפרטים: 03-5260090';
+      }
     }
     var sys = buildSystem(chatType, knowledge);
     var chatRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -150,11 +182,11 @@ app.post('/api/chat', async function(req, res) {
 });
 
 app.get('/api/cache-status', function(req, res) {
-  res.json({ hasCache: !!siteCache.content, lastScanned: siteCache.lastScanned, contentLength: siteCache.content.length, isScanning: siteCache.isScanning, pagesScanned: siteCache.pagesScanned, totalPages: siteCache.totalPages || kbTrips.length, savedToDisk: fs.existsSync(CACHE_FILE) });
+  res.json({ hasCache: !!siteCache.content, lastScanned: siteCache.lastScanned, contentLength: siteCache.content.length, isScanning: siteCache.isScanning, pagesScanned: siteCache.pagesScanned, totalPages: siteCache.totalPages || kbTrips.length, savedToDisk: fs.existsSync(CACHE_FILE), kbCount: kbTrips.length });
 });
 
 app.post('/api/scan-now', function(req, res) {
-  if (siteCache.isScanning) return res.json({ message: 'סריקה פעילה...' });
+  if (siteCache.isScanning) return res.json({ message: 'סריקה פעילה (' + siteCache.pagesScanned + '/' + siteCache.totalPages + ')' });
   if (!kbTrips.length) return res.json({ message: 'אין קישורים במאגר.' });
   scanSite();
   res.json({ message: 'סריקה התחילה!' });
