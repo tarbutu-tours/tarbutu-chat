@@ -7,9 +7,12 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const TWILIO_SID = process.env.TWILIO_SID || 'AC0c7aba8165d7a96b7ab11c05b6c57fdf';
-const TWILIO_TOKEN = process.env.TWILIO_TOKEN || '1f93c57e8c47bf37b4069e8b7ab82a1f';
+const TWILIO_SID = process.env.TWILIO_SID;
+const TWILIO_TOKEN = process.env.TWILIO_TOKEN;
 const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+97233823637';
+const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE || '7107666223';
+const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN || 'fda8a8fe1d2941c2a9702821b8d72f7a86a4841f1f2c47b084';
+const GREEN_API_URL = 'https://7107.api.greenapi.com';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -17,8 +20,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
-const conversations = new Map(); // שיחות בוט באתר
-const waConversations = new Map(); // שיחות וואטסאפ
+const conversations = new Map();
+const waConversations = new Map();
 
 const CACHE_FILE = path.join(__dirname, 'cache.json');
 const KB_FILE = path.join(__dirname, 'kb.json');
@@ -28,7 +31,6 @@ var kbSupportText = '';
 var siteCache = { content: '', lastScanned: null, isScanning: false, pagesScanned: 0, totalPages: 0 };
 var CACHE_TTL = 24 * 60 * 60 * 1000;
 
-// ====== דיסק ======
 function loadFromDisk() {
   try {
     if (fs.existsSync(CACHE_FILE)) {
@@ -51,6 +53,7 @@ function loadFromDisk() {
 function saveCacheToDisk() {
   try {
     fs.writeFileSync(CACHE_FILE, JSON.stringify({ content: siteCache.content, lastScanned: siteCache.lastScanned }), 'utf8');
+    console.log('מטמון נשמר: ' + siteCache.content.length + ' תווים');
   } catch(e) { console.log('שגיאת שמירה:', e.message); }
 }
 
@@ -60,7 +63,6 @@ function saveKbToDisk() {
   } catch(e) { console.log('שגיאת שמירה:', e.message); }
 }
 
-// ====== סריקת טיולים ======
 async function fetchTripInfo(trip) {
   var name = trip.name || trip.url;
   try {
@@ -98,14 +100,12 @@ async function scanSite() {
     siteCache.content = allContent.join('\n\n---\n\n');
     siteCache.lastScanned = new Date();
     saveCacheToDisk();
-    console.log('סריקה הושלמה: ' + siteCache.content.length + ' תווים');
   }
   siteCache.isScanning = false;
 }
 
 setInterval(function(){ if (kbTrips.length > 0) scanSite(); }, CACHE_TTL);
 
-// ====== שליחת הודעת וואטסאפ דרך Twilio ======
 async function sendWhatsApp(to, body) {
   try {
     var toNum = to.startsWith('whatsapp:') ? to : 'whatsapp:' + to;
@@ -116,105 +116,67 @@ async function sendWhatsApp(to, body) {
       body: 'From=' + encodeURIComponent(TWILIO_WHATSAPP_FROM) + '&To=' + encodeURIComponent(toNum) + '&Body=' + encodeURIComponent(body)
     });
     var data = await res.json();
-    console.log('WA נשלח ל-' + to + ': ' + (data.sid || data.message));
     return data.sid ? true : false;
+  } catch(e) { return false; }
+}
+
+async function sendGreenAPI(phone, message) {
+  try {
+    var chatId = phone.replace('+', '') + '@c.us';
+    var res = await fetch(GREEN_API_URL + '/waInstance' + GREEN_API_INSTANCE + '/sendMessage/' + GREEN_API_TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: chatId, message: message })
+    });
+    var data = await res.json();
+    console.log('Green API נשלח ל-' + phone + ': ' + JSON.stringify(data));
+    return data.idMessage ? true : false;
   } catch(e) {
-    console.log('שגיאת שליחת WA:', e.message);
+    console.log('שגיאת Green API:', e.message);
     return false;
   }
 }
 
-// ====== Webhook וואטסאפ נכנס מ-Twilio ======
+app.post('/webhook/greenapi', function(req, res) {
+  try {
+    var body = req.body;
+    if (!body || body.typeWebhook !== 'incomingMessageReceived') return res.json({ ok: true });
+    var phone = '+' + body.senderData.sender.replace('@c.us', '');
+    var message = body.messageData && body.messageData.textMessageData ? body.messageData.textMessageData.textMessage : '';
+    var name = body.senderData.senderName || phone;
+    if (!message) return res.json({ ok: true });
+    console.log('Green API נכנס מ-' + phone + ': ' + message);
+    if (!waConversations.has(phone)) {
+      waConversations.set(phone, { phone: phone, name: name, messages: [], agentMode: false, agentName: null, channel: 'green', createdAt: new Date(), updatedAt: new Date() });
+    }
+    var conv = waConversations.get(phone);
+    conv.messages.push({ role: 'customer', content: message, time: new Date() });
+    conv.lastMessage = message;
+    conv.updatedAt = new Date();
+    res.json({ ok: true });
+  } catch(e) {
+    console.log('שגיאת Green API Webhook:', e.message);
+    res.json({ ok: true });
+  }
+});
+
 app.post('/webhook/whatsapp', function(req, res) {
   var from = req.body.From || '';
   var body = req.body.Body || '';
   var profileName = req.body.ProfileName || 'לקוח';
-
   console.log('WA נכנס מ-' + from + ': ' + body);
-
   var phone = from.replace('whatsapp:', '');
-
   if (!waConversations.has(phone)) {
-    waConversations.set(phone, {
-      phone: phone,
-      name: profileName,
-      messages: [],
-      agentMode: false,
-      agentName: null,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
+    waConversations.set(phone, { phone: phone, name: profileName, messages: [], agentMode: false, agentName: null, channel: 'twilio', createdAt: new Date(), updatedAt: new Date() });
   }
-
   var conv = waConversations.get(phone);
   conv.messages.push({ role: 'customer', content: body, time: new Date() });
   conv.lastMessage = body;
   conv.updatedAt = new Date();
-
-  // שלח TwiML ריק (לא עונה אוטומטית)
   res.set('Content-Type', 'text/xml');
   res.send('<Response></Response>');
 });
 
-// ====== API: רשימת שיחות וואטסאפ ======
-app.get('/api/wa-conversations', function(req, res) {
-  var list = Array.from(waConversations.values()).map(function(c) {
-    return {
-      phone: c.phone, name: c.name,
-      lastMessage: c.lastMessage || '',
-      messageCount: c.messages.length,
-      agentMode: c.agentMode, agentName: c.agentName,
-      createdAt: c.createdAt, updatedAt: c.updatedAt
-    };
-  });
-  res.json(list.sort(function(a,b){ return new Date(b.updatedAt) - new Date(a.updatedAt); }));
-});
-
-app.get('/api/wa-conversations/:phone', function(req, res) {
-  var phone = decodeURIComponent(req.params.phone);
-  var c = waConversations.get(phone);
-  if (!c) return res.status(404).json({ error: 'לא נמצא' });
-  res.json(c);
-});
-
-// שליחת הודעה מנציג דרך וואטסאפ
-app.post('/api/wa-conversations/:phone/send', async function(req, res) {
-  var phone = decodeURIComponent(req.params.phone);
-  var message = req.body.message;
-  var agentName = req.body.agentName || 'נציג';
-
-  if (!message) return res.status(400).json({ error: 'חסר הודעה' });
-
-  var c = waConversations.get(phone);
-  if (!c) return res.status(404).json({ error: 'שיחה לא נמצאה' });
-
-  var sent = await sendWhatsApp(phone, message);
-  if (sent) {
-    c.messages.push({ role: 'agent', content: message, agentName: agentName, time: new Date() });
-    c.agentMode = true;
-    c.agentName = agentName;
-    c.updatedAt = new Date();
-    res.json({ success: true });
-  } else {
-    res.status(500).json({ error: 'שגיאה בשליחה' });
-  }
-});
-
-// העברת שיחה בין ערוצים
-app.post('/api/wa-conversations/:phone/transfer', async function(req, res) {
-  var phone = decodeURIComponent(req.params.phone);
-  var targetChannel = req.body.targetChannel; // 'site' or 'wa2'
-  var c = waConversations.get(phone);
-  if (!c) return res.status(404).json({ error: 'לא נמצא' });
-
-  var msg = 'נציג מעביר אותך לערוץ אחר. נציג ייצור איתך קשר בהקדם.';
-  await sendWhatsApp(phone, msg);
-  c.transferred = targetChannel;
-  c.updatedAt = new Date();
-  res.json({ success: true });
-});
-
-// ====== API: עדכון מאגר ======
 app.post('/api/kb-update', function(req, res) {
   if (req.body.trips) kbTrips = req.body.trips;
   if (req.body.supportText !== undefined) kbSupportText = req.body.supportText;
@@ -222,20 +184,18 @@ app.post('/api/kb-update', function(req, res) {
   res.json({ success: true });
 });
 
-// ====== בניית System Prompt ======
 function buildSystem(chatType, knowledge) {
   var supportSection = kbSupportText ? '\n\n=== מידע שירות לקוחות ===\n' + kbSupportText : '';
   var scanDate = siteCache.lastScanned ? siteCache.lastScanned.toLocaleDateString('he-IL') : 'היום';
   if (chatType === 'support') {
     return 'אתה נציג שירות לקוחות של "תרבותו".\nחוקים:\n- ענה בעברית\n- היה חם ומועיל\n- לשאלות אישיות הפנה ל-03-5260090\n- אל תמציא מידע\n' + supportSection;
   }
-  return 'אתה יועץ מכירות של "תרבותו" – חברת טיולי תרבות.\nחוקים:\n- ענה בעברית\n- היה נלהב\n- תן מידע מפורט: תאריכים, אוניות, מסלולים\n- לגבי מחירים הפנה ל-03-5260090\n- אל תמציא נתונים\n\n' + (knowledge ? 'מידע מהאתר (נסרק ' + scanDate + '):\n' + knowledge : 'טלפון: 03-5260090 | tarbutu.co.il');
+  return 'אתה יועץ מכירות של "תרבותו".\nחוקים:\n- ענה בעברית\n- היה נלהב\n- תן מידע מפורט: תאריכים, אוניות, מסלולים\n- לגבי מחירים הפנה ל-03-5260090\n- אל תמציא נתונים\n\n' + (knowledge ? 'מידע מהאתר (נסרק ' + scanDate + '):\n' + knowledge : 'טלפון: 03-5260090 | tarbutu.co.il');
 }
 
 var SIMPLE = ['שלום','היי','תודה','להתראות','בוקר','ערב','מה שלומך','מי אתה'];
 function isSimple(msg) { return SIMPLE.some(function(k){return msg.toLowerCase().includes(k);}) && msg.length < 20; }
 
-// ====== API: צ'אט בוט ======
 app.post('/api/chat', async function(req, res) {
   var sessionId = req.body.sessionId;
   var message = req.body.message;
@@ -267,13 +227,61 @@ app.post('/api/chat', async function(req, res) {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-// ====== API: שיחות בוט ======
+app.get('/api/wa-conversations', function(req, res) {
+  var list = Array.from(waConversations.values()).map(function(c) {
+    return { phone: c.phone, name: c.name, lastMessage: c.lastMessage || '', messageCount: c.messages.length, agentMode: c.agentMode, agentName: c.agentName, channel: c.channel, createdAt: c.createdAt, updatedAt: c.updatedAt };
+  });
+  res.json(list.sort(function(a,b){ return new Date(b.updatedAt) - new Date(a.updatedAt); }));
+});
+
+app.get('/api/wa-conversations/:phone', function(req, res) {
+  var phone = decodeURIComponent(req.params.phone);
+  var c = waConversations.get(phone);
+  if (!c) return res.status(404).json({ error: 'לא נמצא' });
+  res.json(c);
+});
+
+app.post('/api/wa-conversations/:phone/send', async function(req, res) {
+  var phone = decodeURIComponent(req.params.phone);
+  var message = req.body.message;
+  var agentName = req.body.agentName || 'נציג';
+  if (!message) return res.status(400).json({ error: 'חסר הודעה' });
+  var c = waConversations.get(phone);
+  if (!c) return res.status(404).json({ error: 'שיחה לא נמצאה' });
+  var sent = false;
+  if (c.channel === 'green') {
+    sent = await sendGreenAPI(phone, message);
+  } else {
+    sent = await sendWhatsApp(phone, message);
+  }
+  if (sent) {
+    c.messages.push({ role: 'agent', content: message, agentName: agentName, time: new Date() });
+    c.agentMode = true; c.agentName = agentName; c.updatedAt = new Date();
+    res.json({ success: true });
+  } else {
+    res.status(500).json({ error: 'שגיאה בשליחה' });
+  }
+});
+
+app.post('/api/wa-conversations/:phone/transfer', async function(req, res) {
+  var phone = decodeURIComponent(req.params.phone);
+  var c = waConversations.get(phone);
+  if (!c) return res.status(404).json({ error: 'לא נמצא' });
+  var msg = 'נציג מעביר אותך לערוץ אחר. נציג ייצור איתך קשר בהקדם.';
+  if (c.channel === 'green') await sendGreenAPI(phone, msg);
+  else await sendWhatsApp(phone, msg);
+  c.transferred = req.body.targetChannel;
+  c.updatedAt = new Date();
+  res.json({ success: true });
+});
+
 app.get('/api/conversations', function(req, res) {
   var list = Array.from(conversations.values()).map(function(c) {
     return { id: c.id, lastMessage: c.lastMessage || '', agentMode: c.agentMode, chatType: c.chatType || 'sales', messageCount: c.history.length, createdAt: c.createdAt, updatedAt: c.updatedAt };
   });
   res.json(list.sort(function(a,b){return new Date(b.updatedAt)-new Date(a.updatedAt);}));
 });
+
 app.get('/api/conversations/:id', function(req, res) { var c=conversations.get(req.params.id); if(!c)return res.status(404).json({error:'לא נמצא'}); res.json(c); });
 app.post('/api/conversations/:id/takeover', function(req, res) { var c=conversations.get(req.params.id); if(!c)return res.status(404).json({error:'לא נמצא'}); c.agentMode=true; c.agentName=req.body.agentName||'נציג'; res.json({success:true}); });
 app.post('/api/conversations/:id/agent-message', function(req, res) { var c=conversations.get(req.params.id); if(!c)return res.status(404).json({error:'לא נמצא'}); c.history.push({role:'agent',content:req.body.message,agentName:req.body.agentName||'נציג',time:new Date()}); c.agentMessage=req.body.message; c.agentName=req.body.agentName||'נציג'; res.json({success:true}); });
@@ -283,9 +291,10 @@ app.get('/api/conversations/:id/poll', function(req, res) { var c=conversations.
 app.get('/api/cache-status', function(req, res) {
   res.json({ hasCache: !!siteCache.content, lastScanned: siteCache.lastScanned, contentLength: siteCache.content.length, isScanning: siteCache.isScanning, pagesScanned: siteCache.pagesScanned, totalPages: siteCache.totalPages || kbTrips.length, savedToDisk: fs.existsSync(CACHE_FILE), kbCount: kbTrips.length });
 });
+
 app.post('/api/scan-now', function(req, res) {
-  if (siteCache.isScanning) return res.json({ message: 'סריקה פעילה (' + siteCache.pagesScanned + '/' + siteCache.totalPages + ')' });
-  if (!kbTrips.length) return res.json({ message: 'אין קישורים במאגר.' });
+  if (siteCache.isScanning) return res.json({ message: 'סריקה פעילה...' });
+  if (!kbTrips.length) return res.json({ message: 'אין קישורים.' });
   scanSite(); res.json({ message: 'סריקה התחילה!' });
 });
 
