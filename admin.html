@@ -412,7 +412,23 @@ async function openWaConv(phone) {
   activeConvId = phone; clearInterval(convPoll);
   try { const r=await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)); renderWaChat(await r.json()); convPoll=setInterval(()=>refreshWaChat(phone),4000); } catch(e) {}
 }
-async function refreshWaChat(phone) { if(activeConvId!==phone)return; try{const r=await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone));renderWaChat(await r.json());}catch(e){} }
+async function refreshWaChat(phone) {
+  if(activeConvId!==phone)return;
+  // Don't refresh if user is typing
+  var inp = document.getElementById('wa-input');
+  if(inp && inp.value.trim().length > 0) return;
+  try{const r=await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone));
+  var conv = await r.json();
+  // Only update messages, not the whole chat
+  var msgEl = document.getElementById('wa-msgs-'+phone.replace(/\+/g,'p'));
+  if(msgEl) {
+    var msgs = conv.messages||[];
+    msgEl.innerHTML = msgs.map(function(m){return '<div class="msg '+m.role+'">'+(m.role==='agent'?'<div class="msg-sender">'+(m.agentName||'נציג')+'</div>':'')+'<div class="msg-bbl">'+(m.content||'').replace(/
+/g,'<br>')+'</div><div class="msg-meta">'+(m.time?new Date(m.time).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):'')+'</div></div>';}).join('');
+    msgEl.scrollTop = msgEl.scrollHeight;
+  }
+  }catch(e){}
+}
 
 function renderWaChat(conv) {
   const area=document.getElementById('chat-area');
