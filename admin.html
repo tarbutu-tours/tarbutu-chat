@@ -210,7 +210,7 @@ select.avail-select option{color:#333}
       <div id="login-form">
         <div class="auth-form">
           <div class="form-group"><label>אימייל</label><input type="email" id="login-email" placeholder="your@email.com"></div>
-          <div class="form-group"><label>סיסמה</label><input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
+          <div class="form-group"><label>סיסמה</label><div style="position:relative"><input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()" style="width:100%;padding-left:36px"><button type="button" onclick="togglePass('login-pass',this)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;color:#adb5bd;font-size:16px">👁</button></div></div>
           <button class="auth-btn" onclick="doLogin()">התחבר</button>
         </div>
       </div>
@@ -219,7 +219,7 @@ select.avail-select option{color:#333}
         <div class="auth-form">
           <div class="form-group"><label>שם מלא</label><input type="text" id="reg-name" placeholder="ישראל ישראלי"></div>
           <div class="form-group"><label>אימייל</label><input type="email" id="reg-email" placeholder="your@email.com"></div>
-          <div class="form-group"><label>סיסמה</label><input type="password" id="reg-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doRegister()"></div>
+          <div class="form-group"><label>סיסמה</label><div style="position:relative"><input type="password" id="reg-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doRegister()" style="width:100%;padding-left:36px"><button type="button" onclick="togglePass('reg-pass',this)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;color:#adb5bd;font-size:16px">👁</button></div></div>
           <button class="auth-btn" onclick="doRegister()">הרשם</button>
         </div>
       </div>
@@ -475,6 +475,12 @@ let convPoll = null;
 let currentPhone = null;
 
 // ===== AUTH =====
+function togglePass(id, btn) {
+  var inp = document.getElementById(id);
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🔒'; }
+  else { inp.type = 'password'; btn.textContent = '👁'; }
+}
+
 function showAuthTab(tab) {
   document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));
   event.target.classList.add('active');
@@ -733,7 +739,9 @@ function renderWaChat(conv) {
       <div class="tags-area" id="conv-tags-${pid}">${tags.map(t=>'<span class="tag">'+t+'<button onclick="removeTag(\''+conv.phone+'\',\''+t+'\')">×</button></span>').join('')}</div>
       <div class="chat-topbar-actions">
         ${getStatusBadge(conv.status||'new')}
-        ${conv.status!=='resolved'?'<button class="btn btn-sm btn-success" onclick="markResolved(\''+conv.phone+'\')"><i class="ti ti-check"></i> טופל</button>':'<button class="btn btn-sm btn-outline" onclick="markOpen(\''+conv.phone+'\')">פתח מחדש</button>'}
+        ${conv.status==='resolved'
+          ? '<button class="btn btn-sm btn-warn" onclick="changeStatus(\''+conv.phone+'\',\'open\')"><i class="ti ti-refresh"></i> בטיפול</button><button class="btn btn-sm btn-danger btn-sm" style="margin-right:4px" onclick="changeStatus(\''+conv.phone+'\',\'new\')"><i class="ti ti-bell"></i> חדש</button>'
+          : '<button class="btn btn-sm btn-success" onclick="markResolved(\''+conv.phone+'\')"><i class="ti ti-check"></i> סמן כטופל</button>'}
       </div>
     </div>
     <div class="msgs" id="wa-msgs-${pid}">
@@ -767,6 +775,14 @@ async function sendWaMsg(phone) {
   var d = await r.json();
   if (d.success) { showToast('✅ נשלח'); openWaConv(phone); }
   else showToast('❌ שגיאה: '+d.error);
+}
+
+async function changeStatus(phone, status) {
+  var labels = { new: 'חדש', open: 'בטיפול', resolved: 'טופל' };
+  await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status}) });
+  showToast('סטטוס שונה ל: ' + labels[status] + ' ✅');
+  openWaConv(phone);
+  loadAllConversations();
 }
 
 async function markResolved(phone) {
