@@ -179,6 +179,15 @@ select.avail-select option{color:#333}
 .toast{position:fixed;bottom:18px;left:18px;background:#343a40;color:#fff;padding:9px 16px;border-radius:7px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.2);z-index:99999;display:none;align-items:center;gap:7px}
 .toast.show{display:flex}
 .spin{animation:spin 1s linear infinite;display:inline-block}
+.wait-badge{font-size:10px;padding:2px 6px;border-radius:99px;background:#fdecea;color:#a01010;font-weight:600}
+.wait-badge.medium{background:#fef9e7;color:#a05c00}
+.wait-badge.low{background:#e8f8ef;color:#1a5e35}
+.search-box{padding:.5rem .75rem;border-bottom:1px solid var(--border);flex-shrink:0}
+.search-box input{width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;outline:none;font-family:inherit;direction:rtl}
+.search-box input:focus{border-color:var(--p)}
+.templates-bar{padding:6px 14px;background:#f8fafc;border-top:1px solid #f0f4f8;display:flex;gap:5px;flex-wrap:wrap;flex-shrink:0;overflow-x:auto}
+.tpl-btn{padding:4px 10px;border-radius:99px;border:1px solid var(--border);background:#fff;font-size:11px;cursor:pointer;font-family:inherit;color:#555;white-space:nowrap;transition:all .15s}
+.tpl-btn:hover{border-color:var(--p);color:var(--p);background:var(--pl)}
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 @media(max-width:800px){.ctrl-grid{grid-template-columns:1fr}.kb-grid{grid-template-columns:1fr}}
 </style>
@@ -224,7 +233,7 @@ select.avail-select option{color:#333}
 <nav class="nav">
   <div class="nav-logo">תרבותו <span>AI</span></div>
   <button class="nav-tab active" onclick="showPage('control')" id="tab-control"><i class="ti ti-layout-dashboard"></i> שיחות</button>
-  <button class="nav-tab" onclick="showPage('wa-web')" id="tab-wa-web"><i class="ti ti-brand-whatsapp"></i> WA</button>
+  
   <button class="nav-tab" id="tab-agents" style="display:none" onclick="showPage('agents')"><i class="ti ti-users"></i> נציגים</button>
   <button class="nav-tab" onclick="showPage('knowledge')" id="tab-knowledge"><i class="ti ti-database"></i> מאגר</button>
   <button class="nav-tab" id="tab-reports" style="display:none" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i> דוחות</button>
@@ -262,6 +271,7 @@ select.avail-select option{color:#333}
         <button class="ch-tab active" onclick="showChannel('wa')" id="chtab-wa"><i class="ti ti-brand-whatsapp"></i> WA <span id="wa-count" class="badge badge-wa" style="margin-right:0">0</span></button>
         <button class="ch-tab" onclick="showChannel('bot')" id="chtab-bot"><i class="ti ti-robot"></i> בוט <span id="bot-count" class="badge badge-warn" style="margin-right:0">0</span></button>
       </div>
+      <div class="search-box"><input type="text" id="conv-search" placeholder="🔍 חפש לפי שם או מספר..." oninput="filterSearch(this.value)"></div>
       <div class="conv-list" id="conv-list"><div style="padding:1.5rem;text-align:center;color:#adb5bd;font-size:12px">טוען...</div></div>
     </div>
     <div class="chat-area" id="chat-area">
@@ -270,17 +280,7 @@ select.avail-select option{color:#333}
   </div>
 </div>
 
-<!-- WA WEB -->
-<div class="page" id="page-wa-web">
-  <div style="height:100%;display:flex;flex-direction:column">
-    <div style="padding:8px 12px;background:var(--wa);color:#fff;font-size:12px;display:flex;align-items:center;gap:8px;flex-shrink:0">
-      <i class="ti ti-brand-whatsapp" style="font-size:18px"></i>
-      <strong>WhatsApp Web — לא רשמי</strong>
-      <button class="btn btn-sm btn-outline" style="color:#fff;border-color:rgba(255,255,255,.4);margin-right:auto" onclick="document.getElementById('wa-iframe').src='https://web.whatsapp.com'">🔄 רענן</button>
-    </div>
-    <iframe id="wa-iframe" src="https://web.whatsapp.com" style="flex:1;border:none;width:100%" allow="camera;microphone;fullscreen"></iframe>
-  </div>
-</div>
+
 
 <!-- AGENTS -->
 <div class="page" id="page-agents">
@@ -615,6 +615,8 @@ async function loadAllConversations() {
     renderConvList();
     // Sound notification for new conversations
     var newCount = (window._waList||[]).filter(c=>c.status==='new').length;
+    if (newCount > _lastNewCount) { playNotification(); }
+    _lastNewCount = newCount;
     if (newCount > 0 && document.title.indexOf('🔴') === -1) document.title = '🔴 ' + newCount + ' שיחות חדשות | תרבותו';
     else if (newCount === 0) document.title = 'תרבותו – מרכז ניהול';
   } catch(e) {}
@@ -636,6 +638,9 @@ function renderConvList() {
       if (currentFilter === 'resolved') return c.status === 'resolved';
       if (currentFilter === 'mine') return c.isMyConv;
       return true;
+    }).filter(function(c) {
+      if (!_searchTerm) return true;
+      return (c.name||'').toLowerCase().includes(_searchTerm) || (c.phone||'').includes(_searchTerm) || (c.lastMessage||'').toLowerCase().includes(_searchTerm);
     });
     if (!list.length) { el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:#adb5bd;font-size:12px">אין שיחות</div>'; return; }
     el.innerHTML = list.map(c => `
@@ -648,6 +653,7 @@ function renderConvList() {
         <div class="conv-preview">${c.lastMessage||'הודעה חדשה'}</div>
         <div class="conv-meta">
           ${getStatusBadge(c.status||'new')}
+          ${c.status==='new'?getWaitTime(c.updatedAt):''}
           ${c.assignedName?'<span class="badge" style="background:#f0f4f8;color:#555">👤 '+c.assignedName+'</span>':''}
           ${(c.tags||[]).map(t=>'<span class="badge" style="background:#e8f4fd;color:var(--p)">'+t+'</span>').join('')}
           <span class="conv-time">${timeAgo(c.updatedAt)}</span>
@@ -738,6 +744,11 @@ function renderWaChat(conv) {
       <button class="qa-btn" onclick="showNoteModal('${conv.phone}')"><i class="ti ti-note"></i> הערה</button>
       <button class="qa-btn" onclick="showTagModal('${conv.phone}')"><i class="ti ti-tag"></i> תגית</button>
       <button class="qa-btn" onclick="assignToMe('${conv.phone}')"><i class="ti ti-user-check"></i> קח אליי</button>
+    </div>
+    <div class="templates-bar" id="templates-bar">
+      <span style="font-size:11px;color:#adb5bd;align-self:center">תבניות:</span>
+      ${window._templates.map((t,i)=>'<button class="tpl-btn" onclick="useTemplate('+i+',\''+conv.phone+'\')">'+t.label+'</button>').join('')}
+      <button class="tpl-btn" onclick="showAddTemplate()" style="border-style:dashed">+ הוסף</button>
     </div>
     <div class="input-area">
       <textarea id="wa-input" placeholder="כתוב הודעה..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendWaMsg('${conv.phone}')}"></textarea>
@@ -1042,6 +1053,80 @@ async function loadCacheStatus(){
     else if(d.hasCache){title.textContent='✅ מאגר עדכני';sub.textContent='נסרק: '+(d.lastScanned?new Date(d.lastScanned).toLocaleString('he-IL'):'—')+' | '+d.contentLength.toLocaleString()+' תווים';prog.style.width='100%';trips.forEach(t=>{t.scanned=true;});localStorage.setItem('kb-trips',JSON.stringify(trips));renderTrips();}
     else{title.textContent='⚠️ טרם נסרק';sub.textContent='לחץ "סרוק"';prog.style.width='0%';}
   }catch(e){}
+}
+
+// ===== SEARCH =====
+var _searchTerm = '';
+function filterSearch(val) {
+  _searchTerm = val.toLowerCase();
+  renderConvList();
+}
+
+// ===== TEMPLATES =====
+window._templates = JSON.parse(localStorage.getItem('chat-templates') || JSON.stringify([
+  {label:'ברוכים הבאים', text:'שלום! ברוכים הבאים לתרבותו. במה אוכל לעזור?'},
+  {label:'נחזור בהקדם', text:'תודה על פנייתך! נציג יחזור אליך בהקדם.'},
+  {label:'פרטים נוספים', text:'האם תוכל לתת לי פרטים נוספים על פנייתך?'},
+  {label:'סגירת שיחה', text:'תודה על פנייתך! שמחנו לעזור. נשמח לשמוע ממך שוב בכל עת 😊'}
+]));
+
+function useTemplate(idx, phone) {
+  var inp = document.getElementById('wa-input');
+  if (inp) inp.value = window._templates[idx].text;
+  inp.focus();
+}
+
+function showAddTemplate() {
+  var label = prompt('שם התבנית:');
+  if (!label) return;
+  var text = prompt('תוכן ההודעה:');
+  if (!text) return;
+  window._templates.push({label, text});
+  localStorage.setItem('chat-templates', JSON.stringify(window._templates));
+  showToast('תבנית נוספה ✅');
+}
+
+// ===== WAIT TIME =====
+function getWaitTime(updatedAt) {
+  if (!updatedAt) return '';
+  var diff = Math.floor((Date.now() - new Date(updatedAt)) / 60000);
+  if (diff < 5) return '<span class="wait-badge low">'+diff+' דק'</span>';
+  if (diff < 30) return '<span class="wait-badge medium">'+diff+' דק'</span>';
+  return '<span class="wait-badge">'+diff+' דק'</span>';
+}
+
+// ===== SOUND =====
+var _lastNewCount = 0;
+function playNotification() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    osc.frequency.setValueAtTime(600, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+  } catch(e) {}
+}
+
+// ===== ROLE MANAGEMENT =====
+async function toggleRole(id, currentRole) {
+  var newRole = currentRole === 'admin' ? 'agent' : 'admin';
+  var confirm_msg = newRole === 'admin' ? 'להפוך נציג זה למנהל?' : 'להוריד מנהל זה לנציג?';
+  if (!confirm(confirm_msg)) return;
+  try {
+    await fetch(API+'/api/agents/'+id+'/role', { 
+      method:'POST', 
+      headers:{'Content-Type':'application/json','x-auth-token':authToken}, 
+      body: JSON.stringify({role: newRole}) 
+    });
+    showToast(newRole === 'admin' ? 'הופך למנהל ✅' : 'הורד לנציג ✅');
+    loadAgents();
+  } catch(e) { showToast('שגיאה'); }
 }
 
 function showToast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
