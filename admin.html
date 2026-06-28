@@ -412,20 +412,7 @@ async function openWaConv(phone) {
   activeConvId = phone; clearInterval(convPoll);
   try { const r=await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)); renderWaChat(await r.json()); convPoll=setInterval(()=>refreshWaChat(phone),4000); } catch(e) {}
 }
-async function refreshWaChat(phone) {
-  if(activeConvId!==phone)return;
-  // Don't refresh if user is typing
-  var inp = document.getElementById('wa-input');
-  if(inp && inp.value.trim().length > 0) return;
-  try{
-    const r=await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone));
-    const conv = await r.json();
-    const inp = document.getElementById('wa-input');
-    const savedText = inp ? inp.value : '';
-    renderWaChat(conv);
-    if(inp && savedText) inp.value = savedText;
-  }catch(e){}
-}
+async function refreshWaChat(phone) { if(activeConvId!==phone)return; try{const r=await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone));renderWaChat(await r.json());}catch(e){} }
 
 function renderWaChat(conv) {
   const area=document.getElementById('chat-area');
