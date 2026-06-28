@@ -166,6 +166,15 @@ app.post('/api/agents/:id/approve', adminMiddleware, function(req, res) {
   res.json({ success: true });
 });
 
+// שינוי תפקיד
+app.post('/api/agents/:id/role', adminMiddleware, function(req, res) {
+  var agent = agents.get(req.params.id);
+  if (!agent) return res.status(404).json({ error: 'לא נמצא' });
+  agent.role = req.body.role === 'admin' ? 'admin' : 'agent';
+  saveAgentsToDisk();
+  res.json({ success: true });
+});
+
 // מחיקת נציג
 app.delete('/api/agents/:id', adminMiddleware, function(req, res) {
   agents.delete(req.params.id);
