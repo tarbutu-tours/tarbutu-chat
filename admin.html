@@ -1090,9 +1090,9 @@ function showAddTemplate() {
 function getWaitTime(updatedAt) {
   if (!updatedAt) return '';
   var diff = Math.floor((Date.now() - new Date(updatedAt)) / 60000);
-  if (diff < 5) return '<span class="wait-badge low">'+diff+' דק'</span>';
-  if (diff < 30) return '<span class="wait-badge medium">'+diff+' דק'</span>';
-  return '<span class="wait-badge">'+diff+' דק'</span>';
+  if (diff < 5) return '<span class="wait-badge low">'+diff+' דק</span>';
+  if (diff < 30) return '<span class="wait-badge medium">'+diff+' דק</span>';
+  return '<span class="wait-badge">'+diff+' דק</span>';
 }
 
 // ===== SOUND =====
