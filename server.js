@@ -341,6 +341,18 @@ app.post('/webhook/greenapi', function(req, res) {
   } catch(e) { res.json({ ok: true }); }
 });
 
+// ===== MISSED CALL =====
+app.post('/webhook/missed-call', async function(req, res) {
+  var phone = req.body.phone || '';
+  var callerName = req.body.caller_name || 'לקוח';
+  console.log('שיחה שלא נענתה מ-' + phone);
+  if (!phone) return res.json({ ok: false, error: 'חסר מספר' });
+  var message = 'שלום ' + callerName + '! 👋\n\nהתקשרת לתרבותו ולא הצלחנו לענות.\nנחזור אליך בהקדם האפשרי! 😊\n\nלפרטים נוספים: 03-5260090\nאו השאר הודעה כאן ונחזור אליך.';
+  var sent = await sendGreenAPI(phone, message);
+  if (!sent) sent = await sendWhatsApp(phone, message);
+  res.json({ ok: sent });
+});
+
 // ===== WA CONVERSATIONS =====
 app.get('/api/wa-conversations', async function(req, res) {
   var token = req.headers['x-auth-token'];
