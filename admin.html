@@ -243,7 +243,7 @@ select.avail-select option{color:#333}
       <!-- כפתור ייבוא שיחות מ-Green API -->
       <div class="import-bar">
         <button class="btn btn-green btn-sm" style="width:100%" onclick="importFromGreen()" id="import-btn">
-          <i class="ti ti-download"></i> ייבא שיחות מ-24 שעות (Green API)
+          <i class="ti ti-download"></i> ייבא 20 שיחות אחרונות (Green API)
         </button>
       </div>
       <div class="sidebar-filters">
@@ -439,6 +439,8 @@ let activeChannel = 'wa';
 let currentFilter = 'all';
 let convPoll = null;
 let currentPhone = null;
+var _selectMode = false;
+var _selectedPhones = new Set();
 
 function togglePass(id, btn) {
   var inp = document.getElementById(id);
@@ -583,7 +585,7 @@ async function importFromGreen() {
     showToast('❌ שגיאת חיבור');
   }
   btn.disabled = false;
-  btn.innerHTML = '<i class="ti ti-download"></i> ייבא שיחות מ-24 שעות (Green API)';
+  btn.innerHTML = '<i class="ti ti-download"></i> ייבא 20 שיחות אחרונות (Green API)';
 }
 
 function timeAgo(d){if(!d)return'';const diff=Math.floor((Date.now()-new Date(d))/1000);if(diff<60)return'עכשיו';if(diff<3600)return Math.floor(diff/60)+' דק\'';return Math.floor(diff/3600)+' שע\'';}
