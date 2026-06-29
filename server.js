@@ -267,6 +267,52 @@ async function scanSite() {
 }
 setInterval(function(){ if (kbTrips.length > 0) scanSite(); }, CACHE_TTL);
 
+// ===== SUPABASE CONVERSATIONS =====
+async function sbGetConv(phone) {
+  try {
+    var r = await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), { method: 'GET' });
+    return r[0] || null;
+  } catch(e) { return null; }
+}
+
+async function sbGetAllConvs() {
+  try {
+    return await sbFetch('conversations?order=updated_at.desc', { method: 'GET' });
+  } catch(e) { return []; }
+}
+
+async function sbUpsertConv(conv) {
+  try {
+    await sbFetch('conversations', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify(conv)
+    });
+  } catch(e) { console.error('sbUpsertConv error:', e.message); }
+}
+
+async function sbUpdateConv(phone, data) {
+  try {
+    await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  } catch(e) { console.error('sbUpdateConv error:', e.message); }
+}
+
+async function sbDeleteConv(phone) {
+  try {
+    await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), { method: 'DELETE' });
+  } catch(e) {}
+}
+
+async function sbDeleteResolved() {
+  try {
+    var r = await sbFetch('conversations?status=eq.resolved', { method: 'DELETE', headers: { 'Prefer': 'return=representation' } });
+    return Array.isArray(r) ? r.length : 0;
+  } catch(e) { return 0; }
+}
+
 // ===== WHATSAPP =====
 async function sendWhatsApp(to, body) {
   try {
@@ -285,19 +331,24 @@ async function sendGreenAPI(phone, message) {
   } catch(e) { return false; }
 }
 
-app.post('/webhook/whatsapp', function(req, res) {
+app.post('/webhook/whatsapp', async function(req, res) {
   var from = req.body.From || '', body = req.body.Body || '', profileName = req.body.ProfileName || 'לקוח';
   var phone = from.replace('whatsapp:', '');
+  if (!phone || !body) { res.set('Content-Type', 'text/xml'); res.send('<Response></Response>'); return; }
   console.log('WA נכנס מ-' + phone + ': ' + body);
-  if (!waConversations.has(phone)) waConversations.set(phone, { phone, name: profileName, messages: [], status: 'new', assignedTo: null, channel: 'twilio', tags: [], createdAt: new Date(), updatedAt: new Date() });
-  var conv = waConversations.get(phone);
-  conv.messages.push({ role: 'customer', content: body, time: new Date() });
-  conv.lastMessage = body; conv.updatedAt = new Date();
-  if (conv.status === 'resolved') conv.status = 'new';
+  var conv = await sbGetConv(phone);
+  var now = new Date().toISOString();
+  var msgs = conv ? (conv.messages || []) : [];
+  msgs.push({ role: 'customer', content: body, time: now });
+  if (conv) {
+    await sbUpdateConv(phone, { messages: msgs, last_message: body, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
+  } else {
+    await sbUpsertConv({ phone, name: profileName, messages: msgs, last_message: body, status: 'new', assigned_to: null, channel: 'twilio', tags: [], created_at: now, updated_at: now });
+  }
   res.set('Content-Type', 'text/xml'); res.send('<Response></Response>');
 });
 
-app.post('/webhook/greenapi', function(req, res) {
+app.post('/webhook/greenapi', async function(req, res) {
   try {
     var body = req.body;
     if (!body || body.typeWebhook !== 'incomingMessageReceived') return res.json({ ok: true });
@@ -306,13 +357,17 @@ app.post('/webhook/greenapi', function(req, res) {
     var name = body.senderData.senderName || phone;
     if (!message) return res.json({ ok: true });
     console.log('Green API נכנס מ-' + phone + ': ' + message);
-    if (!waConversations.has(phone)) waConversations.set(phone, { phone, name, messages: [], status: 'new', assignedTo: null, channel: 'green', tags: [], createdAt: new Date(), updatedAt: new Date() });
-    var conv = waConversations.get(phone);
-    conv.messages.push({ role: 'customer', content: message, time: new Date() });
-    conv.lastMessage = message; conv.updatedAt = new Date();
-    if (conv.status === 'resolved') conv.status = 'new';
+    var conv = await sbGetConv(phone);
+    var now = new Date().toISOString();
+    var msgs = conv ? (conv.messages || []) : [];
+    msgs.push({ role: 'customer', content: message, time: now });
+    if (conv) {
+      await sbUpdateConv(phone, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
+    } else {
+      await sbUpsertConv({ phone, name, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: 'green', tags: [], created_at: now, updated_at: now });
+    }
     res.json({ ok: true });
-  } catch(e) { res.json({ ok: true }); }
+  } catch(e) { console.error('greenapi error:', e.message); res.json({ ok: true }); }
 });
 
 // ===== MISSED CALL =====
@@ -332,144 +387,153 @@ app.post('/api/import-green', async function(req, res) {
   try {
     var url = GREEN_API_URL + '/waInstance' + GREEN_API_INSTANCE + '/getChats/' + GREEN_API_TOKEN;
     var response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-    if (!response.ok) {
-      var errText = await response.text();
-      return res.status(500).json({ error: 'Green API error: ' + errText });
-    }
+    if (!response.ok) { var errText = await response.text(); return res.status(500).json({ error: 'Green API error: ' + errText }); }
     var chats = await response.json();
-    if (!Array.isArray(chats)) return res.json({ imported: 0, message: "אין שיחות" });
-    chats = chats.slice(0, 20); // רק 20 האחרונות
-
+    if (!Array.isArray(chats)) return res.json({ imported: 0, message: 'אין שיחות' });
+    chats = chats
+      .filter(function(c) { return c.id && c.id.includes('@c.us'); })
+      .sort(function(a, b) {
+        var ta = a.lastMessage && a.lastMessage.timestamp ? a.lastMessage.timestamp : 0;
+        var tb = b.lastMessage && b.lastMessage.timestamp ? b.lastMessage.timestamp : 0;
+        return tb - ta;
+      })
+      .slice(0, 20);
     var imported = 0;
-    chats.forEach(function(chat) {
-      if (!chat.id || !chat.id.includes('@c.us')) return; // רק שיחות אישיות, לא קבוצות
+    for (var i = 0; i < chats.length; i++) {
+      var chat = chats[i];
       var phone = '+' + chat.id.replace('@c.us', '');
       var name = chat.name || phone;
-      var lastMsg = chat.lastMessage && chat.lastMessage.textMessage ? chat.lastMessage.textMessage : '';
-      var time = chat.lastMessage && chat.lastMessage.timestamp ? new Date(chat.lastMessage.timestamp * 1000) : new Date();
-
-      if (!waConversations.has(phone)) {
-        waConversations.set(phone, { phone, name, messages: [], status: 'new', assignedTo: null, channel: 'green', tags: [], createdAt: time, updatedAt: time });
+      var lastMsg = chat.lastMessage && chat.lastMessage.textMessage ? chat.lastMessage.textMessage : 'הודעה חדשה';
+      var time = chat.lastMessage && chat.lastMessage.timestamp ? new Date(chat.lastMessage.timestamp * 1000).toISOString() : new Date().toISOString();
+      var existing = await sbGetConv(phone);
+      if (!existing) {
+        await sbUpsertConv({ phone, name, messages: [{ role: 'customer', content: lastMsg, time: time }], last_message: lastMsg, status: 'new', assigned_to: null, channel: 'green', tags: [], created_at: time, updated_at: time });
         imported++;
       }
-      var conv = waConversations.get(phone);
-      if (lastMsg && !conv.lastMessage) {
-        conv.messages.push({ role: 'customer', content: lastMsg, time: time });
-        conv.lastMessage = lastMsg;
-        conv.updatedAt = time;
-      }
-    });
-
+    }
     res.json({ success: true, imported: imported, total: chats.length, message: 'יובאו ' + imported + ' שיחות חדשות מתוך ' + chats.length });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== WA CONVERSATIONS =====
 app.get('/api/wa-conversations', async function(req, res) {
-  var token = req.headers['x-auth-token'];
-  var agentId = sessions.get(token);
-  var list = Array.from(waConversations.values()).map(function(c) {
-    return { phone: c.phone, name: c.name, lastMessage: c.lastMessage || '', messageCount: c.messages.length, status: c.status || 'new', assignedTo: c.assignedTo, channel: c.channel, tags: c.tags || [], isMyConv: c.assignedTo === agentId, createdAt: c.createdAt, updatedAt: c.updatedAt };
-  });
-  list.sort(function(a,b) { var o={'new':0,'open':1,'resolved':2}; if(o[a.status]!==o[b.status])return o[a.status]-o[b.status]; return new Date(b.updatedAt)-new Date(a.updatedAt); });
-  res.json(list);
+  try {
+    var token = req.headers['x-auth-token'];
+    var agentId = sessions.get(token);
+    var list = await sbGetAllConvs();
+    var result = list.map(function(c) {
+      return { phone: c.phone, name: c.name, lastMessage: c.last_message || '', messageCount: (c.messages||[]).length, status: c.status || 'new', assignedTo: c.assigned_to, channel: c.channel, tags: c.tags || [], isMyConv: c.assigned_to === agentId, createdAt: c.created_at, updatedAt: c.updated_at };
+    });
+    result.sort(function(a,b) { var o={'new':0,'open':1,'resolved':2}; if(o[a.status]!==o[b.status])return o[a.status]-o[b.status]; return new Date(b.updatedAt)-new Date(a.updatedAt); });
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/wa-conversations/:phone', function(req, res) {
+app.get('/api/wa-conversations/:phone', async function(req, res) {
   var phone = decodeURIComponent(req.params.phone);
-  var c = waConversations.get(phone);
+  var c = await sbGetConv(phone);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
-  res.json(c);
+  res.json({ phone: c.phone, name: c.name, messages: c.messages || [], status: c.status, assignedTo: c.assigned_to, channel: c.channel, tags: c.tags || [], lastMessage: c.last_message, createdAt: c.created_at, updatedAt: c.updated_at });
 });
 
 app.post('/api/wa-conversations/:phone/send', async function(req, res) {
   var token = req.headers['x-auth-token'], agentId = sessions.get(token);
   var phone = decodeURIComponent(req.params.phone), message = req.body.message;
   if (!message) return res.status(400).json({ error: 'חסר הודעה' });
-  var c = waConversations.get(phone); if (!c) return res.status(404).json({ error: 'לא נמצא' });
+  var c = await sbGetConv(phone);
+  if (!c) return res.status(404).json({ error: 'לא נמצא' });
   var agentName = 'נציג';
   try { var agent = await getAgentById(agentId); if (agent) agentName = agent.name; } catch(e) {}
   var sent = c.channel === 'green' ? await sendGreenAPI(phone, message) : await sendWhatsApp(phone, message);
   if (sent) {
-    c.messages.push({ role: 'agent', content: message, agentName, agentId, time: new Date() });
-    c.assignedTo = agentId; c.status = 'open'; c.lastMessage = message; c.updatedAt = new Date();
+    var msgs = c.messages || [];
+    var now = new Date().toISOString();
+    msgs.push({ role: 'agent', content: message, agentName, agentId, time: now });
+    await sbUpdateConv(phone, { messages: msgs, last_message: message, assigned_to: agentId, status: 'open', updated_at: now });
     res.json({ success: true });
   } else { res.status(500).json({ error: 'שגיאה בשליחה' }); }
 });
 
-app.post('/api/wa-conversations/:phone/status', function(req, res) {
-  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
-  if (!c) return res.status(404).json({ error: 'לא נמצא' });
-  c.status = req.body.status || 'open'; c.updatedAt = new Date(); res.json({ success: true });
+app.post('/api/wa-conversations/:phone/status', async function(req, res) {
+  var phone = decodeURIComponent(req.params.phone);
+  await sbUpdateConv(phone, { status: req.body.status || 'open', updated_at: new Date().toISOString() });
+  res.json({ success: true });
 });
 
-app.post('/api/wa-conversations/:phone/assign', function(req, res) {
-  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
-  if (!c) return res.status(404).json({ error: 'לא נמצא' });
-  c.assignedTo = req.body.agentId; c.status = 'open'; c.updatedAt = new Date(); res.json({ success: true });
+app.post('/api/wa-conversations/:phone/assign', async function(req, res) {
+  var phone = decodeURIComponent(req.params.phone);
+  await sbUpdateConv(phone, { assigned_to: req.body.agentId, status: 'open', updated_at: new Date().toISOString() });
+  res.json({ success: true });
 });
 
 app.post('/api/wa-conversations/:phone/transfer', async function(req, res) {
-  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
-  if (!c) return res.status(404).json({ error: 'לא נמצא' });
+  var phone = decodeURIComponent(req.params.phone);
   try {
     var token = req.headers['x-auth-token'], agentId = sessions.get(token);
     var fromAgent = await getAgentById(agentId), toAgent = await getAgentById(req.body.agentId);
-    c.assignedTo = req.body.agentId;
-    c.messages.push({ role: 'system', content: 'השיחה הועברה מ-' + (fromAgent?fromAgent.name:'נציג') + ' ל-' + (toAgent?toAgent.name:'נציג'), time: new Date() });
-    c.updatedAt = new Date(); res.json({ success: true });
+    var c = await sbGetConv(phone);
+    if (!c) return res.status(404).json({ error: 'לא נמצא' });
+    var msgs = c.messages || [];
+    var now = new Date().toISOString();
+    msgs.push({ role: 'system', content: 'השיחה הועברה מ-' + (fromAgent?fromAgent.name:'נציג') + ' ל-' + (toAgent?toAgent.name:'נציג'), time: now });
+    await sbUpdateConv(phone, { assigned_to: req.body.agentId, messages: msgs, updated_at: now });
+    res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/wa-conversations/:phone/note', async function(req, res) {
-  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
-  if (!c) return res.status(404).json({ error: 'לא נמצא' });
+  var phone = decodeURIComponent(req.params.phone);
   var token = req.headers['x-auth-token'], agentId = sessions.get(token);
   var agentName = 'נציג';
   try { var agent = await getAgentById(agentId); if (agent) agentName = agent.name; } catch(e) {}
-  c.messages.push({ role: 'note', content: req.body.note, agentName, time: new Date() });
-  c.updatedAt = new Date(); res.json({ success: true });
-});
-
-app.post('/api/wa-conversations/:phone/tag', function(req, res) {
-  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
+  var c = await sbGetConv(phone);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
-  if (!c.tags) c.tags = [];
-  if (!c.tags.includes(req.body.tag)) c.tags.push(req.body.tag);
-  c.updatedAt = new Date(); res.json({ success: true });
+  var msgs = c.messages || [];
+  var now = new Date().toISOString();
+  msgs.push({ role: 'note', content: req.body.note, agentName, time: now });
+  await sbUpdateConv(phone, { messages: msgs, updated_at: now });
+  res.json({ success: true });
 });
 
-app.delete('/api/wa-conversations/:phone', function(req, res) {
-  waConversations.delete(decodeURIComponent(req.params.phone)); res.json({ success: true });
+app.post('/api/wa-conversations/:phone/tag', async function(req, res) {
+  var phone = decodeURIComponent(req.params.phone);
+  var c = await sbGetConv(phone);
+  if (!c) return res.status(404).json({ error: 'לא נמצא' });
+  var tags = c.tags || [];
+  if (!tags.includes(req.body.tag)) tags.push(req.body.tag);
+  await sbUpdateConv(phone, { tags, updated_at: new Date().toISOString() });
+  res.json({ success: true });
 });
 
-app.delete('/api/wa-conversations', function(req, res) {
-  var deleted = 0;
-  waConversations.forEach(function(c, phone) { if (c.status === 'resolved') { waConversations.delete(phone); deleted++; } });
+app.delete('/api/wa-conversations/:phone', async function(req, res) {
+  await sbDeleteConv(decodeURIComponent(req.params.phone));
+  res.json({ success: true });
+});
+
+app.delete('/api/wa-conversations', async function(req, res) {
+  var deleted = await sbDeleteResolved();
   res.json({ success: true, deleted });
 });
 
 app.get('/api/reports', async function(req, res) {
   try {
     var agents = await getAllAgents();
+    var convs = await sbGetAllConvs();
     var agentStats = {};
     agents.forEach(function(a) { agentStats[a.agent_id] = { name: a.name, total: 0, resolved: 0, open: 0 }; });
-    waConversations.forEach(function(c) {
-      if (c.assignedTo && agentStats[c.assignedTo]) {
-        agentStats[c.assignedTo].total++;
-        if (c.status === 'resolved') agentStats[c.assignedTo].resolved++;
-        else agentStats[c.assignedTo].open++;
+    convs.forEach(function(c) {
+      if (c.assigned_to && agentStats[c.assigned_to]) {
+        agentStats[c.assigned_to].total++;
+        if (c.status === 'resolved') agentStats[c.assigned_to].resolved++;
+        else agentStats[c.assigned_to].open++;
       }
     });
     var byStatus = { new: 0, open: 0, resolved: 0 };
     var byChannel = { twilio: 0, green: 0 };
-    waConversations.forEach(function(c) { byStatus[c.status||'new']++; byChannel[c.channel||'twilio']++; });
-    res.json({ total: waConversations.size, byStatus, byChannel, agentStats: Object.values(agentStats) });
+    convs.forEach(function(c) { byStatus[c.status||'new']++; byChannel[c.channel||'twilio']++; });
+    res.json({ total: convs.length, byStatus, byChannel, agentStats: Object.values(agentStats) });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
-
 // ===== BOT =====
 app.post('/api/kb-update', function(req, res) {
   if (req.body.trips) kbTrips = req.body.trips;
