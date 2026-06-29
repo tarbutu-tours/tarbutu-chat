@@ -331,11 +331,10 @@ app.post('/webhook/missed-call', async function(req, res) {
 app.post('/api/import-green', async function(req, res) {
   try {
     var minutes = 1440; // 24 שעות
-    var url = GREEN_API_URL + '/waInstance' + GREEN_API_INSTANCE + '/getIncomingMessagesJournal/' + GREEN_API_TOKEN;
+    var url = GREEN_API_URL + '/waInstance' + GREEN_API_INSTANCE + '/getIncomingMessagesJournal/' + GREEN_API_TOKEN + '/' + minutes;
     var response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ minutes: minutes })
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
     });
     if (!response.ok) {
       var errText = await response.text();
