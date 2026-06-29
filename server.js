@@ -337,7 +337,8 @@ app.post('/api/import-green', async function(req, res) {
       return res.status(500).json({ error: 'Green API error: ' + errText });
     }
     var chats = await response.json();
-    if (!Array.isArray(chats)) return res.json({ imported: 0, message: 'אין שיחות' });
+    if (!Array.isArray(chats)) return res.json({ imported: 0, message: "אין שיחות" });
+    chats = chats.slice(0, 20); // רק 20 האחרונות
 
     var imported = 0;
     chats.forEach(function(chat) {
