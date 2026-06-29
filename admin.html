@@ -234,6 +234,8 @@ select.avail-select option{color:#333}
       <div class="sidebar-hdr">
         <span class="sidebar-title">שיחות פעילות <span id="conv-total" class="badge badge-warn" style="margin-right:4px">0</span></span>
         <div style="display:flex;gap:4px">
+          <button class="btn btn-sm btn-outline" onclick="toggleSelectMode()" id="select-mode-btn" title="בחר שיחות"><i class="ti ti-checkbox"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSelected()" id="delete-selected-btn" style="display:none"><i class="ti ti-trash"></i> (<span id="selected-count">0</span>)</button>
           <button class="btn btn-sm btn-outline" onclick="showDeleteModal()" title="מחק שיחות"><i class="ti ti-trash"></i></button>
           <button class="btn btn-sm btn-outline" onclick="loadAllConversations()" title="רענן"><i class="ti ti-refresh"></i></button>
         </div>
@@ -632,6 +634,7 @@ function renderConvList() {
     el.innerHTML = list.map(c => `
       <div class="conv-item ${c.phone===activeConvId?'active-conv':''} ${c.isMyConv?'mine':''}" onclick="openWaConv('${c.phone}')">
         <div class="conv-name">
+          ${_selectMode?'<input type="checkbox" '+((_selectedPhones.has(c.phone))?'checked':'')+'" onclick="toggleSelectPhone(\'"+c.phone+"\',event)" style="margin-left:4px">':''}
           <i class="ti ti-brand-whatsapp" style="font-size:12px;color:var(--wa)"></i>
           ${c.name||c.phone}
           ${c.isMyConv?'<span class="badge badge-mine" style="font-size:9px">שלי</span>':''}
@@ -1029,6 +1032,41 @@ async function loadCacheStatus(){
 
 var _searchTerm = '';
 function filterSearch(val) { _searchTerm = val.toLowerCase(); renderConvList(); }
+
+function toggleSelectMode() {
+  _selectMode = !_selectMode;
+  _selectedPhones.clear();
+  var btn = document.getElementById("select-mode-btn");
+  var delBtn = document.getElementById("delete-selected-btn");
+  btn.style.background = _selectMode ? "var(--p)" : "";
+  btn.style.color = _selectMode ? "#fff" : "";
+  delBtn.style.display = _selectMode ? "flex" : "none";
+  document.getElementById("selected-count").textContent = "0";
+  renderConvList();
+}
+
+async function deleteSelected() {
+  if (_selectedPhones.size === 0) { showToast("לא נבחרו שיחות"); return; }
+  if (!confirm("למחוק " + _selectedPhones.size + " שיחות?")) return;
+  for (var phone of _selectedPhones) {
+    await fetch(API+"/api/wa-conversations/"+encodeURIComponent(phone), { method:"DELETE", headers:{"x-auth-token":authToken} });
+  }
+  showToast("נמחקו " + _selectedPhones.size + " שיחות ✅");
+  _selectedPhones.clear();
+  _selectMode = false;
+  document.getElementById("select-mode-btn").style.background = "";
+  document.getElementById("select-mode-btn").style.color = "";
+  document.getElementById("delete-selected-btn").style.display = "none";
+  loadAllConversations();
+}
+
+function toggleSelectPhone(phone, e) {
+  e.stopPropagation();
+  if (_selectedPhones.has(phone)) _selectedPhones.delete(phone);
+  else _selectedPhones.add(phone);
+  document.getElementById("selected-count").textContent = _selectedPhones.size;
+  renderConvList();
+}
 
 window._templates = JSON.parse(localStorage.getItem('chat-templates') || JSON.stringify([
   {label:'ברוכים הבאים', text:'שלום! ברוכים הבאים לתרבותו. במה אוכל לעזור?'},
