@@ -720,7 +720,7 @@ function renderWaChat(conv) {
       <div class="chat-topbar-actions">
         ${getStatusBadge(conv.status||'new')}
         ${conv.status==='resolved'
-          ? '<button class="btn btn-sm btn-warn" onclick="changeStatus(\''+conv.phone+'\',\'open\')"><i class="ti ti-refresh"></i> בטיפול</button>'
+          ? '<button class="btn btn-sm btn-warn" onclick="changeStatus(\''+conv.phone+'\',\'open\')"><i class="ti ti-refresh"></i> בטיפול</button><button class="btn btn-sm btn-danger btn-sm" style="margin-right:4px" onclick="changeStatus(\''+conv.phone+'\',\'new\')"><i class="ti ti-bell"></i> חדש</button>'
           : '<button class="btn btn-sm btn-success" onclick="markResolved(\''+conv.phone+'\')"><i class="ti ti-check"></i> סמן כטופל</button>'}
       </div>
     </div>
