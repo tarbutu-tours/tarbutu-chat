@@ -424,7 +424,7 @@ app.get('/api/wa-conversations', async function(req, res) {
     var result = list.map(function(c) {
       return { phone: c.phone, name: c.name, lastMessage: c.last_message || '', messageCount: (c.messages||[]).length, status: c.status || 'new', assignedTo: c.assigned_to, channel: c.channel, tags: c.tags || [], isMyConv: c.assigned_to === agentId, createdAt: c.created_at, updatedAt: c.updated_at };
     });
-    result.sort(function(a,b) { var o={'new':0,'open':1,'resolved':2}; if(o[a.status]!==o[b.status])return o[a.status]-o[b.status]; return new Date(b.updatedAt)-new Date(a.updatedAt); });
+    result.sort(function(a,b) { return new Date(b.updatedAt)-new Date(a.updatedAt); });
     res.json(result);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
