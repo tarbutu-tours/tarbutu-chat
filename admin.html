@@ -11,8 +11,6 @@
 :root{--p:#1a6fa8;--pd:#0e4e7a;--pl:#e8f4fd;--ok:#27ae60;--warn:#f39c12;--danger:#e74c3c;--wa:#25d366;--gray:#f0f4f8;--border:#dee2e6}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gray);color:#343a40;min-height:100vh;direction:rtl}
-
-/* AUTH */
 .auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--pd) 0%,var(--p) 100%)}
 .auth-card{background:#fff;border-radius:16px;padding:2.5rem;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.2)}
 .auth-logo{text-align:center;margin-bottom:1.5rem}
@@ -32,8 +30,6 @@ body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gra
 .auth-msg{text-align:center;font-size:13px;padding:10px;border-radius:8px;margin-top:8px}
 .auth-msg.ok{background:#e8f8ef;color:#1a5e35}
 .auth-msg.err{background:#fdecea;color:#a01010}
-
-/* NAV */
 .nav{background:var(--pd);color:#fff;height:56px;display:flex;align-items:center;padding:0 1rem;gap:.25rem;flex-shrink:0}
 .nav-logo{font-size:.95rem;font-weight:700;margin-left:.75rem}
 .nav-logo span{color:#f0c040}
@@ -46,12 +42,8 @@ body{font-family:'Segoe UI','Arial Hebrew',Arial,sans-serif;background:var(--gra
 .avail-dot.offline{background:#adb5bd}
 select.avail-select{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:3px 6px;font-size:11px;cursor:pointer}
 select.avail-select option{color:#333}
-
-/* LAYOUT */
 .page{display:none;height:calc(100vh - 56px)}.page.active{display:flex;flex-direction:column}
 .ctrl-grid{display:grid;grid-template-columns:280px 1fr;flex:1;overflow:hidden}
-
-/* SIDEBAR */
 .sidebar{background:#fff;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
 .sidebar-hdr{padding:.75rem 1rem;border-bottom:1px solid #f0f4f8;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .sidebar-title{font-weight:600;font-size:.85rem}
@@ -78,8 +70,6 @@ select.avail-select option{color:#333}
 .badge-warn{background:#fef9e7;color:#a05c00}
 .badge-wa{background:#e8fef0;color:#1a7040}
 .badge-mine{background:var(--pl);color:var(--p)}
-
-/* CHAT */
 .chat-area{display:flex;flex-direction:column;background:#f8fafc;overflow:hidden;flex:1}
 .chat-empty{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#adb5bd}
 .chat-empty i{font-size:44px}
@@ -105,8 +95,6 @@ select.avail-select option{color:#333}
 .tags-area{display:flex;gap:4px;flex-wrap:wrap;padding:0 3px}
 .tag{background:var(--pl);color:var(--p);border-radius:99px;font-size:10px;padding:2px 8px;display:flex;align-items:center;gap:3px}
 .tag button{background:transparent;border:none;cursor:pointer;color:var(--p);font-size:12px;line-height:1;padding:0}
-
-/* PANELS */
 .panel-page{display:none;flex-direction:column;flex:1;overflow-y:auto;padding:1rem}
 .panel-page.active{display:flex}
 .card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.07);overflow:hidden;margin-bottom:1rem}
@@ -122,15 +110,12 @@ select.avail-select option{color:#333}
 .btn-outline{background:transparent;border:1px solid var(--border);color:#555}.btn-outline:hover{background:var(--gray)}
 .btn-sm{padding:4px 9px;font-size:11px}
 .btn-wa{background:var(--wa);color:#fff}
-
-/* AGENTS */
+.btn-green{background:#25a244;color:#fff}
 .agent-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:12px;margin-bottom:8px}
 .agent-avatar{width:40px;height:40px;border-radius:50%;background:var(--pl);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--p);font-size:16px;flex-shrink:0}
 .agent-info-block{flex:1}
 .agent-name-row{font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px}
 .agent-sub{font-size:12px;color:#6c757d}
-
-/* KB */
 .kb-tabs{display:flex;gap:3px;margin-bottom:1rem}
 .kb-tab{padding:7px 14px;border-radius:8px;border:1.5px solid var(--border);background:#fff;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:5px}
 .kb-tab:hover{border-color:var(--p);color:var(--p)}.kb-tab.active{background:var(--p);color:#fff;border-color:var(--p)}
@@ -155,13 +140,9 @@ select.avail-select option{color:#333}
 .progress-fill{height:100%;background:var(--p);border-radius:99px;transition:width .5s}
 .proc-bar{background:#fff8e1;border:1px solid #ffc107;border-radius:7px;padding:8px 12px;font-size:12px;color:#7a5800;display:none;align-items:center;gap:6px;margin-bottom:8px}
 .proc-bar.show{display:flex}
-
-/* STATS */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.75rem;margin-bottom:1rem}
 .stat-card{background:#fff;border-radius:10px;padding:1rem;box-shadow:0 2px 8px rgba(0,0,0,.07);text-align:center}
 .stat-num{font-size:1.8rem;font-weight:700;color:var(--p)}.stat-lbl{font-size:11px;color:#6c757d;margin-top:2px}
-
-/* MODAL */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:none;align-items:center;justify-content:center;padding:16px}
 .modal-overlay.show{display:flex}
 .modal{background:#fff;border-radius:14px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;direction:rtl}
@@ -174,8 +155,6 @@ select.avail-select option{color:#333}
 .modal-form label{font-size:12px;font-weight:600;color:#6c757d;display:block;margin-bottom:3px}
 .modal-form input,.modal-form textarea,.modal-form select{width:100%;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;font-family:inherit;direction:rtl}
 .modal-form input:focus,.modal-form textarea:focus,.modal-form select:focus{border-color:var(--p)}
-
-/* TOAST */
 .toast{position:fixed;bottom:18px;left:18px;background:#343a40;color:#fff;padding:9px 16px;border-radius:7px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.2);z-index:99999;display:none;align-items:center;gap:7px}
 .toast.show{display:flex}
 .spin{animation:spin 1s linear infinite;display:inline-block}
@@ -188,6 +167,8 @@ select.avail-select option{color:#333}
 .templates-bar{padding:6px 14px;background:#f8fafc;border-top:1px solid #f0f4f8;display:flex;gap:5px;flex-wrap:wrap;flex-shrink:0;overflow-x:auto}
 .tpl-btn{padding:4px 10px;border-radius:99px;border:1px solid var(--border);background:#fff;font-size:11px;cursor:pointer;font-family:inherit;color:#555;white-space:nowrap;transition:all .15s}
 .tpl-btn:hover{border-color:var(--p);color:var(--p);background:var(--pl)}
+/* Import bar */
+.import-bar{padding:.5rem .75rem;border-bottom:1px solid #f0f4f8;flex-shrink:0;background:#f0fdf4}
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 @media(max-width:800px){.ctrl-grid{grid-template-columns:1fr}.kb-grid{grid-template-columns:1fr}}
 </style>
@@ -206,7 +187,6 @@ select.avail-select option{color:#333}
         <button class="auth-tab active" onclick="showAuthTab('login')">התחברות</button>
         <button class="auth-tab" onclick="showAuthTab('register')">הרשמה</button>
       </div>
-      <!-- LOGIN -->
       <div id="login-form">
         <div class="auth-form">
           <div class="form-group"><label>אימייל</label><input type="email" id="login-email" placeholder="your@email.com"></div>
@@ -214,7 +194,6 @@ select.avail-select option{color:#333}
           <button class="auth-btn" onclick="doLogin()">התחבר</button>
         </div>
       </div>
-      <!-- REGISTER -->
       <div id="register-form" style="display:none">
         <div class="auth-form">
           <div class="form-group"><label>שם מלא</label><input type="text" id="reg-name" placeholder="ישראל ישראלי"></div>
@@ -233,7 +212,6 @@ select.avail-select option{color:#333}
 <nav class="nav">
   <div class="nav-logo">תרבותו <span>AI</span></div>
   <button class="nav-tab active" onclick="showPage('control')" id="tab-control"><i class="ti ti-layout-dashboard"></i> שיחות</button>
-  
   <button class="nav-tab" id="tab-agents" style="display:none" onclick="showPage('agents')"><i class="ti ti-users"></i> נציגים</button>
   <button class="nav-tab" onclick="showPage('knowledge')" id="tab-knowledge"><i class="ti ti-database"></i> מאגר</button>
   <button class="nav-tab" id="tab-reports" style="display:none" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i> דוחות</button>
@@ -260,6 +238,12 @@ select.avail-select option{color:#333}
           <button class="btn btn-sm btn-outline" onclick="loadAllConversations()" title="רענן"><i class="ti ti-refresh"></i></button>
         </div>
       </div>
+      <!-- כפתור ייבוא שיחות מ-Green API -->
+      <div class="import-bar">
+        <button class="btn btn-green btn-sm" style="width:100%" onclick="importFromGreen()" id="import-btn">
+          <i class="ti ti-download"></i> ייבא שיחות מ-24 שעות (Green API)
+        </button>
+      </div>
       <div class="sidebar-filters">
         <button class="filter-btn active" onclick="setFilter('all',this)">הכל</button>
         <button class="filter-btn" onclick="setFilter('new',this)">🔴 חדש</button>
@@ -280,21 +264,15 @@ select.avail-select option{color:#333}
   </div>
 </div>
 
-
-
 <!-- AGENTS -->
 <div class="page" id="page-agents">
   <div class="panel-page active">
     <div class="card">
-      <div class="card-header">
-        <div class="card-title"><i class="ti ti-clock"></i> ממתינים לאישור</div>
-      </div>
+      <div class="card-header"><div class="card-title"><i class="ti ti-clock"></i> ממתינים לאישור</div></div>
       <div class="card-body" id="pending-agents"><div style="color:#adb5bd;font-size:13px">אין בקשות ממתינות</div></div>
     </div>
     <div class="card">
-      <div class="card-header">
-        <div class="card-title"><i class="ti ti-users"></i> נציגים פעילים</div>
-      </div>
+      <div class="card-header"><div class="card-title"><i class="ti ti-users"></i> נציגים פעילים</div></div>
       <div class="card-body" id="active-agents"><div style="color:#adb5bd;font-size:13px">טוען...</div></div>
     </div>
   </div>
@@ -389,15 +367,10 @@ select.avail-select option{color:#333}
 </div>
 
 <!-- MODALS -->
-<!-- Transfer Modal -->
 <div class="modal-overlay" id="transfer-modal">
   <div class="modal">
     <div class="modal-header"><h3>העבר שיחה לנציג</h3><button class="modal-close" onclick="closeModal('transfer-modal')">×</button></div>
-    <div class="modal-body">
-      <div class="modal-form">
-        <div><label>בחר נציג</label><select id="transfer-agent-select"></select></div>
-      </div>
-    </div>
+    <div class="modal-body"><div class="modal-form"><div><label>בחר נציג</label><select id="transfer-agent-select"></select></div></div></div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('transfer-modal')">ביטול</button>
       <button class="btn btn-primary" onclick="doTransfer()">העבר</button>
@@ -405,15 +378,10 @@ select.avail-select option{color:#333}
   </div>
 </div>
 
-<!-- Note Modal -->
 <div class="modal-overlay" id="note-modal">
   <div class="modal">
     <div class="modal-header"><h3>הוסף הערה פנימית</h3><button class="modal-close" onclick="closeModal('note-modal')">×</button></div>
-    <div class="modal-body">
-      <div class="modal-form">
-        <div><label>הערה (לא נשלחת ללקוח)</label><textarea id="note-text" rows="4" placeholder="הערה פנימית..."></textarea></div>
-      </div>
-    </div>
+    <div class="modal-body"><div class="modal-form"><div><label>הערה (לא נשלחת ללקוח)</label><textarea id="note-text" rows="4" placeholder="הערה פנימית..."></textarea></div></div></div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('note-modal')">ביטול</button>
       <button class="btn btn-warn" onclick="doAddNote()"><i class="ti ti-note"></i> הוסף הערה</button>
@@ -421,7 +389,6 @@ select.avail-select option{color:#333}
   </div>
 </div>
 
-<!-- Delete Modal -->
 <div class="modal-overlay" id="delete-modal">
   <div class="modal">
     <div class="modal-header"><h3>מחיקת שיחות</h3><button class="modal-close" onclick="closeModal('delete-modal')">×</button></div>
@@ -432,13 +399,10 @@ select.avail-select option{color:#333}
         <button class="btn btn-outline" style="width:100%;color:var(--danger);border-color:var(--danger)" onclick="deleteCurrentConv()"><i class="ti ti-trash"></i> מחק שיחה נוכחית</button>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal('delete-modal')">סגור</button>
-    </div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('delete-modal')">סגור</button></div>
   </div>
 </div>
 
-<!-- Tag Modal -->
 <div class="modal-overlay" id="tag-modal">
   <div class="modal">
     <div class="modal-header"><h3>הוסף תגית</h3><button class="modal-close" onclick="closeModal('tag-modal')">×</button></div>
@@ -474,7 +438,6 @@ let currentFilter = 'all';
 let convPoll = null;
 let currentPhone = null;
 
-// ===== AUTH =====
 function togglePass(id, btn) {
   var inp = document.getElementById(id);
   if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🔒'; }
@@ -504,8 +467,7 @@ async function doLogin() {
     var r = await fetch(API+'/api/agents/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password: pass}) });
     var d = await r.json();
     if (!r.ok) return showAuthMsg(d.error || 'שגיאה', 'err');
-    authToken = d.token;
-    currentAgent = d.agent;
+    authToken = d.token; currentAgent = d.agent;
     localStorage.setItem('auth-token', authToken);
     initApp();
   } catch(e) { showAuthMsg('שגיאת חיבור', 'err'); }
@@ -569,7 +531,6 @@ function updateAvailDot(val) {
   dot.className = 'avail-dot' + (val==='busy'?' busy':val==='offline'?' offline':'');
 }
 
-// ===== PAGES =====
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
@@ -602,7 +563,27 @@ function showKbTab(tab) {
   document.getElementById('kbtab-'+tab).classList.add('active');
 }
 
-// ===== CONVERSATIONS =====
+// ===== ייבוא מ-GREEN API =====
+async function importFromGreen() {
+  var btn = document.getElementById('import-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-refresh spin"></i> מייבא...';
+  try {
+    var r = await fetch(API+'/api/import-green', { method:'POST', headers:{'x-auth-token':authToken} });
+    var d = await r.json();
+    if (d.success) {
+      showToast('✅ ' + d.message);
+      loadAllConversations();
+    } else {
+      showToast('❌ ' + (d.error || 'שגיאה'));
+    }
+  } catch(e) {
+    showToast('❌ שגיאת חיבור');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-download"></i> ייבא שיחות מ-24 שעות (Green API)';
+}
+
 function timeAgo(d){if(!d)return'';const diff=Math.floor((Date.now()-new Date(d))/1000);if(diff<60)return'עכשיו';if(diff<3600)return Math.floor(diff/60)+' דק\'';return Math.floor(diff/3600)+' שע\'';}
 
 async function loadAllConversations() {
@@ -619,7 +600,6 @@ async function loadAllConversations() {
     document.getElementById('bot-count').textContent = botLen;
     document.getElementById('conv-total').textContent = waLen + botLen;
     renderConvList();
-    // Sound notification for new conversations
     var newCount = (window._waList||[]).filter(c=>c.status==='new').length;
     if (newCount > _lastNewCount) { playNotification(); }
     _lastNewCount = newCount;
@@ -660,7 +640,6 @@ function renderConvList() {
         <div class="conv-meta">
           ${getStatusBadge(c.status||'new')}
           ${c.status==='new'?getWaitTime(c.updatedAt):''}
-          ${c.assignedName?'<span class="badge" style="background:#f0f4f8;color:#555">👤 '+c.assignedName+'</span>':''}
           ${(c.tags||[]).map(t=>'<span class="badge" style="background:#e8f4fd;color:var(--p)">'+t+'</span>').join('')}
           <span class="conv-time">${timeAgo(c.updatedAt)}</span>
         </div>
@@ -680,7 +659,6 @@ function renderConvList() {
   }
 }
 
-// ===== WA CHAT =====
 async function openWaConv(phone) {
   activeConvId = phone; currentPhone = phone;
   clearInterval(convPoll);
@@ -688,7 +666,6 @@ async function openWaConv(phone) {
     var r = await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone), { headers:{'x-auth-token':authToken} });
     renderWaChat(await r.json());
     convPoll = setInterval(function() { refreshWaChat(phone); }, 4000);
-    // Mark as open
     await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status:'open'}) });
     renderConvList();
   } catch(e) {}
@@ -704,12 +681,10 @@ async function refreshWaChat(phone) {
     var pid = phone.replace(/\+/g,'p');
     var msgEl = document.getElementById('wa-msgs-'+pid);
     if (msgEl) {
-      var savedScroll = msgEl.scrollTop;
-      var atBottom = msgEl.scrollHeight - msgEl.clientHeight <= savedScroll + 10;
+      var atBottom = msgEl.scrollHeight - msgEl.clientHeight <= msgEl.scrollTop + 10;
       msgEl.innerHTML = renderMessages(conv.messages||[]);
       if (atBottom) msgEl.scrollTop = msgEl.scrollHeight;
     }
-    // Update tags
     var tagsEl = document.getElementById('conv-tags-'+pid);
     if (tagsEl) tagsEl.innerHTML = (conv.tags||[]).map(t=>'<span class="tag">'+t+'<button onclick="removeTag(\''+phone+'\',\''+t+'\')">×</button></span>').join('');
     renderConvList();
@@ -720,7 +695,7 @@ function renderMessages(msgs) {
   return msgs.map(function(m) {
     var role = m.role;
     if (role === 'system') return '<div class="msg system"><div class="msg-bbl">'+m.content+'</div></div>';
-    if (role === 'note') return '<div class="msg note"><div class="msg-bbl">📌 <strong>הערה פנימית</strong><br>'+(m.content||'')+'<br><span style="font-size:10px;color:#adb5bd">'+( m.agentName||'')+'</span></div></div>';
+    if (role === 'note') return '<div class="msg note"><div class="msg-bbl">📌 <strong>הערה פנימית</strong><br>'+(m.content||'')+'<br><span style="font-size:10px;color:#adb5bd">'+(m.agentName||'')+'</span></div></div>';
     return '<div class="msg '+role+'">'+(role==='agent'?'<div class="msg-sender">'+(m.agentName||'נציג')+'</div>':'')+'<div class="msg-bbl">'+(m.content||'').replace(/\n/g,'<br>')+'</div><div class="msg-meta">'+(m.time?new Date(m.time).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):'')+' '+(m.channel==='green'?'📱':'📞')+'</div></div>';
   }).join('');
 }
@@ -740,20 +715,18 @@ function renderWaChat(conv) {
       <div class="chat-topbar-actions">
         ${getStatusBadge(conv.status||'new')}
         ${conv.status==='resolved'
-          ? '<button class="btn btn-sm btn-warn" onclick="changeStatus(\''+conv.phone+'\',\'open\')"><i class="ti ti-refresh"></i> בטיפול</button><button class="btn btn-sm btn-danger btn-sm" style="margin-right:4px" onclick="changeStatus(\''+conv.phone+'\',\'new\')"><i class="ti ti-bell"></i> חדש</button>'
+          ? '<button class="btn btn-sm btn-warn" onclick="changeStatus(\''+conv.phone+'\',\'open\')"><i class="ti ti-refresh"></i> בטיפול</button>'
           : '<button class="btn btn-sm btn-success" onclick="markResolved(\''+conv.phone+'\')"><i class="ti ti-check"></i> סמן כטופל</button>'}
       </div>
     </div>
-    <div class="msgs" id="wa-msgs-${pid}">
-      ${renderMessages(conv.messages||[])}
-    </div>
+    <div class="msgs" id="wa-msgs-${pid}">${renderMessages(conv.messages||[])}</div>
     <div class="quick-actions">
       <button class="qa-btn" onclick="showTransferModal('${conv.phone}')"><i class="ti ti-transfer"></i> העבר</button>
       <button class="qa-btn" onclick="showNoteModal('${conv.phone}')"><i class="ti ti-note"></i> הערה</button>
       <button class="qa-btn" onclick="showTagModal('${conv.phone}')"><i class="ti ti-tag"></i> תגית</button>
       <button class="qa-btn" onclick="assignToMe('${conv.phone}')"><i class="ti ti-user-check"></i> קח אליי</button>
     </div>
-    <div class="templates-bar" id="templates-bar">
+    <div class="templates-bar">
       <span style="font-size:11px;color:#adb5bd;align-self:center">תבניות:</span>
       ${window._templates.map((t,i)=>'<button class="tpl-btn" onclick="useTemplate('+i+',\''+conv.phone+'\')">'+t.label+'</button>').join('')}
       <button class="tpl-btn" onclick="showAddTemplate()" style="border-style:dashed">+ הוסף</button>
@@ -778,23 +751,15 @@ async function sendWaMsg(phone) {
 }
 
 async function changeStatus(phone, status) {
-  var labels = { new: 'חדש', open: 'בטיפול', resolved: 'טופל' };
   await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status}) });
-  showToast('סטטוס שונה ל: ' + labels[status] + ' ✅');
-  openWaConv(phone);
-  loadAllConversations();
+  showToast('סטטוס עודכן ✅');
+  openWaConv(phone); loadAllConversations();
 }
 
 async function markResolved(phone) {
   await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status:'resolved'}) });
   showToast('✅ סומן כטופל');
-  openWaConv(phone);
-  loadAllConversations();
-}
-
-async function markOpen(phone) {
-  await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status:'open'}) });
-  openWaConv(phone);
+  openWaConv(phone); loadAllConversations();
 }
 
 async function assignToMe(phone) {
@@ -803,12 +768,8 @@ async function assignToMe(phone) {
   openWaConv(phone); loadAllConversations();
 }
 
-async function removeTag(phone, tag) {
-  // Simple: just reload and remove tag locally
-  showToast('תגית הוסרה');
-}
+async function removeTag(phone, tag) { showToast('תגית הוסרה'); }
 
-// ===== BOT CHAT =====
 async function openBotConv(id) {
   activeConvId = id; currentPhone = null;
   clearInterval(convPoll);
@@ -858,7 +819,6 @@ async function sendBotMsg(id){
   openBotConv(id);
 }
 
-// ===== MODALS =====
 function showModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 
@@ -927,7 +887,6 @@ async function deleteCurrentConv() {
   loadAllConversations();
 }
 
-// ===== AGENTS =====
 async function loadAgents() {
   try {
     var r = await fetch(API+'/api/agents', { headers:{'x-auth-token':authToken} });
@@ -974,7 +933,6 @@ async function deleteAgent(id) {
   loadAgents();
 }
 
-// ===== REPORTS =====
 async function loadReports() {
   try {
     var r = await fetch(API+'/api/reports', { headers:{'x-auth-token':authToken} });
@@ -999,7 +957,6 @@ async function loadReports() {
   } catch(e) {}
 }
 
-// ===== KB =====
 let trips = JSON.parse(localStorage.getItem('kb-trips')||'[]');
 let supportDocs = JSON.parse(localStorage.getItem('kb-support-docs')||'[]');
 let supportText = localStorage.getItem('kb-support-text')||'';
@@ -1058,7 +1015,6 @@ function renderDocs(){
 }
 function removeDoc(idx){supportDocs.splice(idx,1);saveSupportData();renderDocs();}
 function setProc(s,t){const b=document.getElementById('proc-bar');if(s){b.classList.add('show');document.getElementById('proc-text').textContent=t||'מעבד...';}else b.classList.remove('show');}
-
 async function syncToServer(){try{await fetch(API+'/api/kb-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trips,supportText})});}catch(e){}}
 async function triggerScan(){await syncToServer();try{await fetch(API+'/api/scan-now',{method:'POST'});}catch(e){}showToast('סריקה התחילה!');setTimeout(loadCacheStatus,3000);}
 async function loadCacheStatus(){
@@ -1071,14 +1027,9 @@ async function loadCacheStatus(){
   }catch(e){}
 }
 
-// ===== SEARCH =====
 var _searchTerm = '';
-function filterSearch(val) {
-  _searchTerm = val.toLowerCase();
-  renderConvList();
-}
+function filterSearch(val) { _searchTerm = val.toLowerCase(); renderConvList(); }
 
-// ===== TEMPLATES =====
 window._templates = JSON.parse(localStorage.getItem('chat-templates') || JSON.stringify([
   {label:'ברוכים הבאים', text:'שלום! ברוכים הבאים לתרבותו. במה אוכל לעזור?'},
   {label:'נחזור בהקדם', text:'תודה על פנייתך! נציג יחזור אליך בהקדם.'},
@@ -1102,7 +1053,6 @@ function showAddTemplate() {
   showToast('תבנית נוספה ✅');
 }
 
-// ===== WAIT TIME =====
 function getWaitTime(updatedAt) {
   if (!updatedAt) return '';
   var diff = Math.floor((Date.now() - new Date(updatedAt)) / 60000);
@@ -1111,43 +1061,23 @@ function getWaitTime(updatedAt) {
   return '<span class="wait-badge">'+diff+' דק</span>';
 }
 
-// ===== SOUND =====
 var _lastNewCount = 0;
 function playNotification() {
   try {
     var ctx = new (window.AudioContext || window.webkitAudioContext)();
     var osc = ctx.createOscillator();
     var gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    osc.connect(gain); gain.connect(ctx.destination);
     osc.frequency.setValueAtTime(800, ctx.currentTime);
     osc.frequency.setValueAtTime(600, ctx.currentTime + 0.1);
     gain.gain.setValueAtTime(0.3, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
   } catch(e) {}
-}
-
-// ===== ROLE MANAGEMENT =====
-async function toggleRole(id, currentRole) {
-  var newRole = currentRole === 'admin' ? 'agent' : 'admin';
-  var confirm_msg = newRole === 'admin' ? 'להפוך נציג זה למנהל?' : 'להוריד מנהל זה לנציג?';
-  if (!confirm(confirm_msg)) return;
-  try {
-    await fetch(API+'/api/agents/'+id+'/role', { 
-      method:'POST', 
-      headers:{'Content-Type':'application/json','x-auth-token':authToken}, 
-      body: JSON.stringify({role: newRole}) 
-    });
-    showToast(newRole === 'admin' ? 'הופך למנהל ✅' : 'הורד לנציג ✅');
-    loadAgents();
-  } catch(e) { showToast('שגיאה'); }
 }
 
 function showToast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
 
-// Init
 checkAuth();
 </script>
 </body>
