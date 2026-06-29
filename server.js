@@ -27,7 +27,7 @@ app.use(express.static(__dirname));
 
 const conversations = new Map();
 const waConversations = new Map();
-const sessions = new Map(); // token -> agentId
+const sessions = new Map();
 
 const CACHE_FILE = path.join(__dirname, 'cache.json');
 const KB_FILE = path.join(__dirname, 'kb.json');
@@ -87,28 +87,22 @@ async function getAgentByEmail(email) {
   var res = await sbFetch('agents?email=eq.' + encodeURIComponent(email), { method: 'GET' });
   return res[0] || null;
 }
-
 async function getAgentById(id) {
   var res = await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'GET' });
   return res[0] || null;
 }
-
 async function getAllAgents() {
   return await sbFetch('agents?order=created_at.asc', { method: 'GET' });
 }
-
 async function createAgent(agent) {
   return await sbFetch('agents', { method: 'POST', body: JSON.stringify(agent) });
 }
-
 async function updateAgent(id, data) {
   return await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) });
 }
-
 async function deleteAgent(id) {
   return await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
 }
-
 async function countAgents() {
   var res = await sbFetch('agents?select=agent_id', { method: 'GET', headers: { 'Prefer': 'count=exact' } });
   return res.length;
@@ -145,30 +139,21 @@ async function adminMiddleware(req, res, next) {
 
 // ===== AGENT API =====
 app.post('/api/agents/register', async function(req, res) {
-  var name = req.body.name;
-  var email = req.body.email;
-  var password = req.body.password;
+  var name = req.body.name, email = req.body.email, password = req.body.password;
   if (!name || !email || !password) return res.status(400).json({ error: 'חסרים פרטים' });
   try {
     var exists = await getAgentByEmail(email);
     if (exists) return res.status(400).json({ error: 'אימייל כבר קיים' });
     var count = await countAgents();
     var isFirst = count === 0;
-    var agent = {
-      agent_id: 'agent_' + Date.now(),
-      name, email, password,
-      role: isFirst ? 'admin' : 'agent',
-      status: isFirst ? 'approved' : 'pending',
-      availability: 'online'
-    };
+    var agent = { agent_id: 'agent_' + Date.now(), name, email, password, role: isFirst ? 'admin' : 'agent', status: isFirst ? 'approved' : 'pending', availability: 'online' };
     await createAgent(agent);
     res.json({ success: true, message: isFirst ? 'נרשמת כמנהל ✅' : 'בקשתך נשלחה לאישור המנהל ⏳' });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/agents/login', async function(req, res) {
-  var email = req.body.email;
-  var password = req.body.password;
+  var email = req.body.email, password = req.body.password;
   try {
     var agent = await getAgentByEmail(email);
     if (!agent || agent.password !== password) return res.status(401).json({ error: 'אימייל או סיסמה שגויים' });
@@ -184,10 +169,7 @@ app.post('/api/agents/login', async function(req, res) {
 app.post('/api/agents/logout', async function(req, res) {
   var token = req.headers['x-auth-token'];
   var agentId = sessions.get(token);
-  if (agentId) {
-    sessions.delete(token);
-    try { await updateAgent(agentId, { availability: 'offline' }); } catch(e) {}
-  }
+  if (agentId) { sessions.delete(token); try { await updateAgent(agentId, { availability: 'offline' }); } catch(e) {} }
   res.json({ success: true });
 });
 
@@ -195,10 +177,8 @@ app.post('/api/agents/availability', async function(req, res) {
   var token = req.headers['x-auth-token'];
   var agentId = sessions.get(token);
   if (!agentId) return res.status(401).json({ error: 'לא מחובר' });
-  try {
-    await updateAgent(agentId, { availability: req.body.availability || 'online' });
-    res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  try { await updateAgent(agentId, { availability: req.body.availability || 'online' }); res.json({ success: true }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/agents/me', async function(req, res) {
@@ -220,28 +200,23 @@ app.get('/api/agents', async function(req, res) {
     var agent = await getAgentById(agentId);
     if (!agent || agent.role !== 'admin') return res.status(403).json({ error: 'אין הרשאה' });
     var list = await getAllAgents();
-    res.json(list.map(function(a) {
-      return { id: a.agent_id, name: a.name, email: a.email, role: a.role, status: a.status, availability: a.availability, createdAt: a.created_at, lastLogin: a.last_login };
-    }));
+    res.json(list.map(function(a) { return { id: a.agent_id, name: a.name, email: a.email, role: a.role, status: a.status, availability: a.availability, createdAt: a.created_at, lastLogin: a.last_login }; }));
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/agents/:id/approve', async function(req, res) {
-  var token = req.headers['x-auth-token'];
-  var agentId = sessions.get(token);
+  var token = req.headers['x-auth-token'], agentId = sessions.get(token);
   if (!agentId) return res.status(401).json({ error: 'לא מחובר' });
   try {
     var me = await getAgentById(agentId);
     if (!me || me.role !== 'admin') return res.status(403).json({ error: 'אין הרשאה' });
-    var status = req.body.action === 'approve' ? 'approved' : 'rejected';
-    await updateAgent(req.params.id, { status });
+    await updateAgent(req.params.id, { status: req.body.action === 'approve' ? 'approved' : 'rejected' });
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/agents/:id/role', async function(req, res) {
-  var token = req.headers['x-auth-token'];
-  var agentId = sessions.get(token);
+  var token = req.headers['x-auth-token'], agentId = sessions.get(token);
   if (!agentId) return res.status(401).json({ error: 'לא מחובר' });
   try {
     var me = await getAgentById(agentId);
@@ -252,8 +227,7 @@ app.post('/api/agents/:id/role', async function(req, res) {
 });
 
 app.delete('/api/agents/:id', async function(req, res) {
-  var token = req.headers['x-auth-token'];
-  var agentId = sessions.get(token);
+  var token = req.headers['x-auth-token'], agentId = sessions.get(token);
   if (!agentId) return res.status(401).json({ error: 'לא מחובר' });
   try {
     var me = await getAgentById(agentId);
@@ -312,7 +286,7 @@ async function sendGreenAPI(phone, message) {
 }
 
 app.post('/webhook/whatsapp', function(req, res) {
-  var from = req.body.From || ''; var body = req.body.Body || ''; var profileName = req.body.ProfileName || 'לקוח';
+  var from = req.body.From || '', body = req.body.Body || '', profileName = req.body.ProfileName || 'לקוח';
   var phone = from.replace('whatsapp:', '');
   console.log('WA נכנס מ-' + phone + ': ' + body);
   if (!waConversations.has(phone)) waConversations.set(phone, { phone, name: profileName, messages: [], status: 'new', assignedTo: null, channel: 'twilio', tags: [], createdAt: new Date(), updatedAt: new Date() });
@@ -353,6 +327,51 @@ app.post('/webhook/missed-call', async function(req, res) {
   res.json({ ok: sent });
 });
 
+// ===== ייבוא שיחות מ-GREEN API (24 שעות אחרונות) =====
+app.post('/api/import-green', async function(req, res) {
+  try {
+    var minutes = 1440; // 24 שעות
+    var url = GREEN_API_URL + '/waInstance' + GREEN_API_INSTANCE + '/getIncomingMessagesJournal/' + GREEN_API_TOKEN;
+    var response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minutes: minutes })
+    });
+    if (!response.ok) {
+      var errText = await response.text();
+      return res.status(500).json({ error: 'Green API error: ' + errText });
+    }
+    var messages = await response.json();
+    if (!Array.isArray(messages)) return res.json({ imported: 0, message: 'אין הודעות' });
+
+    var imported = 0;
+    messages.forEach(function(msg) {
+      if (!msg.chatId || !msg.textMessage) return;
+      var phone = '+' + msg.chatId.replace('@c.us', '');
+      var name = msg.senderName || phone;
+      var text = msg.textMessage || '';
+      var time = msg.timestamp ? new Date(msg.timestamp * 1000) : new Date();
+
+      if (!waConversations.has(phone)) {
+        waConversations.set(phone, { phone, name, messages: [], status: 'new', assignedTo: null, channel: 'green', tags: [], createdAt: time, updatedAt: time });
+        imported++;
+      }
+      var conv = waConversations.get(phone);
+      // בדוק שההודעה לא קיימת כבר
+      var exists = conv.messages.some(function(m) { return m.content === text && Math.abs(new Date(m.time) - time) < 5000; });
+      if (!exists) {
+        conv.messages.push({ role: 'customer', content: text, time: time });
+        conv.lastMessage = text;
+        conv.updatedAt = time;
+      }
+    });
+
+    res.json({ success: true, imported: imported, total: messages.length, message: 'יובאו ' + imported + ' שיחות חדשות מתוך ' + messages.length + ' הודעות' });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ===== WA CONVERSATIONS =====
 app.get('/api/wa-conversations', async function(req, res) {
   var token = req.headers['x-auth-token'];
@@ -372,8 +391,8 @@ app.get('/api/wa-conversations/:phone', function(req, res) {
 });
 
 app.post('/api/wa-conversations/:phone/send', async function(req, res) {
-  var token = req.headers['x-auth-token']; var agentId = sessions.get(token);
-  var phone = decodeURIComponent(req.params.phone); var message = req.body.message;
+  var token = req.headers['x-auth-token'], agentId = sessions.get(token);
+  var phone = decodeURIComponent(req.params.phone), message = req.body.message;
   if (!message) return res.status(400).json({ error: 'חסר הודעה' });
   var c = waConversations.get(phone); if (!c) return res.status(404).json({ error: 'לא נמצא' });
   var agentName = 'נציג';
@@ -387,23 +406,23 @@ app.post('/api/wa-conversations/:phone/send', async function(req, res) {
 });
 
 app.post('/api/wa-conversations/:phone/status', function(req, res) {
-  var phone = decodeURIComponent(req.params.phone); var c = waConversations.get(phone);
+  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
   c.status = req.body.status || 'open'; c.updatedAt = new Date(); res.json({ success: true });
 });
 
 app.post('/api/wa-conversations/:phone/assign', function(req, res) {
-  var phone = decodeURIComponent(req.params.phone); var c = waConversations.get(phone);
+  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
   c.assignedTo = req.body.agentId; c.status = 'open'; c.updatedAt = new Date(); res.json({ success: true });
 });
 
 app.post('/api/wa-conversations/:phone/transfer', async function(req, res) {
-  var phone = decodeURIComponent(req.params.phone); var c = waConversations.get(phone);
+  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
   try {
-    var token = req.headers['x-auth-token']; var agentId = sessions.get(token);
-    var fromAgent = await getAgentById(agentId); var toAgent = await getAgentById(req.body.agentId);
+    var token = req.headers['x-auth-token'], agentId = sessions.get(token);
+    var fromAgent = await getAgentById(agentId), toAgent = await getAgentById(req.body.agentId);
     c.assignedTo = req.body.agentId;
     c.messages.push({ role: 'system', content: 'השיחה הועברה מ-' + (fromAgent?fromAgent.name:'נציג') + ' ל-' + (toAgent?toAgent.name:'נציג'), time: new Date() });
     c.updatedAt = new Date(); res.json({ success: true });
@@ -411,9 +430,9 @@ app.post('/api/wa-conversations/:phone/transfer', async function(req, res) {
 });
 
 app.post('/api/wa-conversations/:phone/note', async function(req, res) {
-  var phone = decodeURIComponent(req.params.phone); var c = waConversations.get(phone);
+  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
-  var token = req.headers['x-auth-token']; var agentId = sessions.get(token);
+  var token = req.headers['x-auth-token'], agentId = sessions.get(token);
   var agentName = 'נציג';
   try { var agent = await getAgentById(agentId); if (agent) agentName = agent.name; } catch(e) {}
   c.messages.push({ role: 'note', content: req.body.note, agentName, time: new Date() });
@@ -421,7 +440,7 @@ app.post('/api/wa-conversations/:phone/note', async function(req, res) {
 });
 
 app.post('/api/wa-conversations/:phone/tag', function(req, res) {
-  var phone = decodeURIComponent(req.params.phone); var c = waConversations.get(phone);
+  var phone = decodeURIComponent(req.params.phone), c = waConversations.get(phone);
   if (!c) return res.status(404).json({ error: 'לא נמצא' });
   if (!c.tags) c.tags = [];
   if (!c.tags.includes(req.body.tag)) c.tags.push(req.body.tag);
@@ -475,7 +494,7 @@ var SIMPLE = ['שלום','היי','תודה','להתראות','בוקר','ערב
 function isSimple(msg) { return SIMPLE.some(function(k){return msg.toLowerCase().includes(k);}) && msg.length < 20; }
 
 app.post('/api/chat', async function(req, res) {
-  var sessionId = req.body.sessionId; var message = req.body.message;
+  var sessionId = req.body.sessionId, message = req.body.message;
   var history = Array.isArray(req.body.history) ? req.body.history : [];
   var chatType = req.body.chatType || 'sales';
   if (!message) return res.status(400).json({ error: 'חסר הודעה' });
