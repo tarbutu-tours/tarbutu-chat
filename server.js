@@ -327,45 +327,39 @@ app.post('/webhook/missed-call', async function(req, res) {
   res.json({ ok: sent });
 });
 
-// ===== ייבוא שיחות מ-GREEN API (24 שעות אחרונות) =====
+// ===== ייבוא שיחות מ-GREEN API =====
 app.post('/api/import-green', async function(req, res) {
   try {
-    var minutes = 1440; // 24 שעות
-    var url = GREEN_API_URL + '/waInstance' + GREEN_API_INSTANCE + '/getIncomingMessagesJournal/' + GREEN_API_TOKEN + '/' + minutes;
-    var response = await fetch(url, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    });
+    var url = GREEN_API_URL + '/waInstance' + GREEN_API_INSTANCE + '/getChats/' + GREEN_API_TOKEN;
+    var response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
     if (!response.ok) {
       var errText = await response.text();
       return res.status(500).json({ error: 'Green API error: ' + errText });
     }
-    var messages = await response.json();
-    if (!Array.isArray(messages)) return res.json({ imported: 0, message: 'אין הודעות' });
+    var chats = await response.json();
+    if (!Array.isArray(chats)) return res.json({ imported: 0, message: 'אין שיחות' });
 
     var imported = 0;
-    messages.forEach(function(msg) {
-      if (!msg.chatId || !msg.textMessage) return;
-      var phone = '+' + msg.chatId.replace('@c.us', '');
-      var name = msg.senderName || phone;
-      var text = msg.textMessage || '';
-      var time = msg.timestamp ? new Date(msg.timestamp * 1000) : new Date();
+    chats.forEach(function(chat) {
+      if (!chat.id || !chat.id.includes('@c.us')) return; // רק שיחות אישיות, לא קבוצות
+      var phone = '+' + chat.id.replace('@c.us', '');
+      var name = chat.name || phone;
+      var lastMsg = chat.lastMessage && chat.lastMessage.textMessage ? chat.lastMessage.textMessage : '';
+      var time = chat.lastMessage && chat.lastMessage.timestamp ? new Date(chat.lastMessage.timestamp * 1000) : new Date();
 
       if (!waConversations.has(phone)) {
         waConversations.set(phone, { phone, name, messages: [], status: 'new', assignedTo: null, channel: 'green', tags: [], createdAt: time, updatedAt: time });
         imported++;
       }
       var conv = waConversations.get(phone);
-      // בדוק שההודעה לא קיימת כבר
-      var exists = conv.messages.some(function(m) { return m.content === text && Math.abs(new Date(m.time) - time) < 5000; });
-      if (!exists) {
-        conv.messages.push({ role: 'customer', content: text, time: time });
-        conv.lastMessage = text;
+      if (lastMsg && !conv.lastMessage) {
+        conv.messages.push({ role: 'customer', content: lastMsg, time: time });
+        conv.lastMessage = lastMsg;
         conv.updatedAt = time;
       }
     });
 
-    res.json({ success: true, imported: imported, total: messages.length, message: 'יובאו ' + imported + ' שיחות חדשות מתוך ' + messages.length + ' הודעות' });
+    res.json({ success: true, imported: imported, total: chats.length, message: 'יובאו ' + imported + ' שיחות חדשות מתוך ' + chats.length });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
