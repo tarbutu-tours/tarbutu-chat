@@ -352,7 +352,17 @@ app.post('/webhook/greenapi', async function(req, res) {
   try {
     var body = req.body;
     if (!body || body.typeWebhook !== 'incomingMessageReceived') return res.json({ ok: true });
-    var phone = '+' + body.senderData.sender.replace('@c.us', '');
+    var chatId = body.senderData.chatId || body.senderData.sender;
+    var isGroup = chatId && chatId.includes('@g.us');
+    var phone, name, senderName;
+    if (isGroup) {
+      phone = 'group_' + chatId.replace('@g.us', '');
+      name = body.senderData.chatName || 'קבוצה';
+      senderName = body.senderData.senderName || body.senderData.sender.replace('@c.us', '');
+    } else {
+      phone = '+' + body.senderData.sender.replace('@c.us', '');
+      name = body.senderData.senderName || phone;
+    }
     var md = body.messageData || {};
     var message = '';
     if (md.textMessageData && md.textMessageData.textMessage) {
@@ -366,8 +376,8 @@ app.post('/webhook/greenapi', async function(req, res) {
     } else if (md.typeMessage) {
       message = '[' + md.typeMessage + ']';
     }
-    var name = body.senderData.senderName || phone;
-    console.log('Green API webhook - phone:' + phone + ' type:' + (md.typeMessage||'?') + ' msg:' + message);
+    if (isGroup && message) message = (senderName ? senderName + ': ' : '') + message;
+    console.log('Green API webhook - phone:' + phone + ' isGroup:' + isGroup + ' type:' + (md.typeMessage||'?') + ' msg:' + message);
     if (!message) { console.log('Green API - הודעה ריקה, מתעלם'); return res.json({ ok: true }); }
     var conv = await sbGetConv(phone);
     var now = new Date().toISOString();
@@ -376,7 +386,7 @@ app.post('/webhook/greenapi', async function(req, res) {
     if (conv) {
       await sbUpdateConv(phone, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
     } else {
-      await sbUpsertConv({ phone, name, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: 'green', tags: [], created_at: now, updated_at: now });
+      await sbUpsertConv({ phone, name, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: isGroup ? 'group' : 'green', tags: [], created_at: now, updated_at: now });
     }
     console.log('Green API - נשמר בהצלחה: ' + phone);
     res.json({ ok: true });
