@@ -237,6 +237,7 @@ select.avail-select option{color:#333}
           <button class="btn btn-sm btn-outline" onclick="toggleSelectMode()" id="select-mode-btn" title="בחר שיחות"><i class="ti ti-checkbox"></i></button>
           <button class="btn btn-sm btn-danger" onclick="deleteSelected()" id="delete-selected-btn" style="display:none"><i class="ti ti-trash"></i> (<span id="selected-count">0</span>)</button>
           <button class="btn btn-sm btn-outline" onclick="showDeleteModal()" title="מחק שיחות"><i class="ti ti-trash"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteAll()" title="מחק הכל"><i class="ti ti-trash"></i> הכל</button>
           <button class="btn btn-sm btn-outline" onclick="loadAllConversations()" title="רענן"><i class="ti ti-refresh"></i></button>
         </div>
       </div>
@@ -664,14 +665,17 @@ function renderConvList() {
   }
 }
 
-async function openWaConv(phone) {
+async function openWaConv(phone, skipStatusChange) {
   activeConvId = phone; currentPhone = phone;
   clearInterval(convPoll);
   try {
     var r = await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone), { headers:{'x-auth-token':authToken} });
-    renderWaChat(await r.json());
+    var conv = await r.json();
+    renderWaChat(conv);
     convPoll = setInterval(function() { refreshWaChat(phone); }, 4000);
-    await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status:'open'}) });
+    if (!skipStatusChange && conv.status === 'new') {
+      await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status:'open'}) });
+    }
     renderConvList();
   } catch(e) {}
 }
@@ -758,13 +762,13 @@ async function sendWaMsg(phone) {
 async function changeStatus(phone, status) {
   await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status}) });
   showToast('סטטוס עודכן ✅');
-  openWaConv(phone); loadAllConversations();
+  openWaConv(phone, true); loadAllConversations();
 }
 
 async function markResolved(phone) {
   await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status:'resolved'}) });
   showToast('✅ סומן כטופל');
-  openWaConv(phone); loadAllConversations();
+  openWaConv(phone, true); loadAllConversations();
 }
 
 async function assignToMe(phone) {
@@ -1114,6 +1118,17 @@ function playNotification() {
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
     osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
   } catch(e) {}
+}
+
+async function deleteAll() {
+  if (!confirm('למחוק את כל השיחות? פעולה זו לא ניתנת לביטול!')) return;
+  try {
+    await fetch('/api/wa-conversations/delete-all', { method: 'DELETE', headers: {'x-auth-token': authToken} });
+    showToast('כל השיחות נמחקו ✅');
+    activeConvId = null; currentPhone = null;
+    document.getElementById('chat-area').innerHTML = '<div class="chat-empty"><i class="ti ti-message-dots"></i><span>בחר שיחה מהרשימה</span></div>';
+    loadAllConversations();
+  } catch(e) { showToast('שגיאה'); }
 }
 
 function showToast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
