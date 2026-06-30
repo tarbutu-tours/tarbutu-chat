@@ -272,13 +272,13 @@ async function sbGetConv(phone) {
   try {
     var r = await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), { method: 'GET' });
     return r[0] || null;
-  } catch(e) { return null; }
+  } catch(e) { console.error('sbGetConv FAILED for ' + phone + ':', e.message); return null; }
 }
 
 async function sbGetAllConvs() {
   try {
     return await sbFetch('conversations?order=updated_at.desc', { method: 'GET' });
-  } catch(e) { return []; }
+  } catch(e) { console.error('sbGetAllConvs FAILED:', e.message); return []; }
 }
 
 async function sbUpsertConv(conv) {
@@ -288,7 +288,9 @@ async function sbUpsertConv(conv) {
       headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
       body: JSON.stringify(conv)
     });
-  } catch(e) { console.error('sbUpsertConv error:', e.message); }
+    console.log('sbUpsertConv SUCCESS for ' + conv.phone);
+    return true;
+  } catch(e) { console.error('sbUpsertConv FAILED for ' + conv.phone + ':', e.message); return false; }
 }
 
 async function sbUpdateConv(phone, data) {
@@ -297,7 +299,33 @@ async function sbUpdateConv(phone, data) {
       method: 'PATCH',
       body: JSON.stringify(data)
     });
-  } catch(e) { console.error('sbUpdateConv error:', e.message); }
+    console.log('sbUpdateConv SUCCESS for ' + phone);
+    return true;
+  } catch(e) { console.error('sbUpdateConv FAILED for ' + phone + ':', e.message); return false; }
+}
+
+// שמירה בטוחה: מנסה PATCH, ואם נכשל (לא קיים) עושה INSERT מלא. תמיד עם retry פעם אחת על כשל רשת.
+async function sbSaveMessage(phone, name, message, channel, role) {
+  var now = new Date().toISOString();
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      var conv = await sbGetConv(phone);
+      var msgs = conv ? (conv.messages || []) : [];
+      msgs.push({ role: role || 'customer', content: message, time: now });
+      if (conv) {
+        var ok = await sbUpdateConv(phone, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
+        if (ok) return true;
+      } else {
+        var ok2 = await sbUpsertConv({ phone, name: name || phone, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: channel || 'green', tags: [], created_at: now, updated_at: now });
+        if (ok2) return true;
+      }
+    } catch(e) {
+      console.error('sbSaveMessage attempt ' + attempt + ' FAILED for ' + phone + ':', e.message);
+    }
+    await new Promise(function(r){ setTimeout(r, 500); });
+  }
+  console.error('sbSaveMessage GAVE UP for ' + phone + ' after 2 attempts. Message lost: ' + message);
+  return false;
 }
 
 async function sbDeleteConv(phone) {
@@ -336,15 +364,7 @@ app.post('/webhook/whatsapp', async function(req, res) {
   var phone = from.replace('whatsapp:', '');
   if (!phone || !body) { res.set('Content-Type', 'text/xml'); res.send('<Response></Response>'); return; }
   console.log('WA נכנס מ-' + phone + ': ' + body);
-  var conv = await sbGetConv(phone);
-  var now = new Date().toISOString();
-  var msgs = conv ? (conv.messages || []) : [];
-  msgs.push({ role: 'customer', content: body, time: now });
-  if (conv) {
-    await sbUpdateConv(phone, { messages: msgs, last_message: body, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
-  } else {
-    await sbUpsertConv({ phone, name: profileName, messages: msgs, last_message: body, status: 'new', assigned_to: null, channel: 'twilio', tags: [], created_at: now, updated_at: now });
-  }
+  await sbSaveMessage(phone, profileName, body, 'twilio', 'customer');
   res.set('Content-Type', 'text/xml'); res.send('<Response></Response>');
 });
 
@@ -379,17 +399,9 @@ app.post('/webhook/greenapi', async function(req, res) {
     if (isGroup && message) message = (senderName ? senderName + ': ' : '') + message;
     console.log('Green API webhook - phone:' + phone + ' isGroup:' + isGroup + ' type:' + (md.typeMessage||'?') + ' msg:' + message);
     if (!message) { console.log('Green API - הודעה ריקה, מתעלם'); return res.json({ ok: true }); }
-    var conv = await sbGetConv(phone);
-    var now = new Date().toISOString();
-    var msgs = conv ? (conv.messages || []) : [];
-    msgs.push({ role: 'customer', content: message, time: now });
-    if (conv) {
-      await sbUpdateConv(phone, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
-    } else {
-      await sbUpsertConv({ phone, name, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: isGroup ? 'group' : 'green', tags: [], created_at: now, updated_at: now });
-    }
-    console.log('Green API - נשמר בהצלחה: ' + phone);
-    res.json({ ok: true });
+    var saved = await sbSaveMessage(phone, name, message, isGroup ? 'group' : 'green', 'customer');
+    console.log('Green API - תוצאת שמירה עבור ' + phone + ': ' + (saved ? 'הצליח' : 'נכשל!!!'));
+    res.json({ ok: true, saved: saved });
   } catch(e) { console.error('greenapi error:', e.message, e.stack); res.json({ ok: true }); }
 });
 
