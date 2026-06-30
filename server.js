@@ -639,3 +639,59 @@ app.get('/', function(req, res) { var p1=path.join(__dirname,'public','index.htm
 
 loadFromDisk();
 app.listen(PORT, function() { console.log('Server running on port ' + PORT); });
+
+// ===== POLLING GREEN API כל 30 שניות =====
+var lastPollTime = Date.now();
+
+async function pollGreenAPI() {
+  try {
+    var url = GREEN_API_URL + '/waInstance' + GREEN_API_INSTANCE + '/getChats/' + GREEN_API_TOKEN;
+    var response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+    if (!response.ok) { console.log('Green API poll failed: ' + response.status); return; }
+    var chats = await response.json();
+    if (!Array.isArray(chats)) return;
+
+    // רק שיחות אישיות (לא קבוצות) שהתעדכנו מאז הפול האחרון
+    var newChats = chats.filter(function(c) {
+      if (!c.id || !c.id.includes('@c.us')) return false;
+      if (!c.lastMessage || !c.lastMessage.timestamp) return false;
+      var msgTime = c.lastMessage.timestamp * 1000;
+      return msgTime > lastPollTime - 60000; // נוסיף 60 שניות overlap כדי לא לפספס
+    });
+
+    for (var i = 0; i < newChats.length; i++) {
+      var chat = newChats[i];
+      var phone = '+' + chat.id.replace('@c.us', '');
+      var name = chat.name || phone;
+      var lastMsg = chat.lastMessage;
+      if (!lastMsg || !lastMsg.textMessage) continue; // רק הודעות טקסט
+      var msgTime = new Date(lastMsg.timestamp * 1000).toISOString();
+      var text = lastMsg.textMessage;
+      var fromMe = lastMsg.fromMe;
+      if (fromMe) continue; // רק הודעות נכנסות, לא יוצאות
+
+      // בדוק אם ההודעה כבר קיימת
+      var conv = await sbGetConv(phone);
+      if (conv && conv.messages) {
+        var exists = conv.messages.some(function(m) {
+          return m.content === text && Math.abs(new Date(m.time) - new Date(msgTime)) < 30000;
+        });
+        if (exists) continue;
+      }
+
+      console.log('Green API poll - הודעה חדשה מ-' + phone + ': ' + text);
+      await sbSaveMessage(phone, name, text, 'green', 'customer');
+    }
+
+    lastPollTime = Date.now();
+  } catch(e) {
+    console.error('Green API poll error:', e.message);
+  }
+}
+
+// התחל polling אחרי 10 שניות מעלייה, ואז כל 30 שניות
+setTimeout(function() {
+  pollGreenAPI();
+  setInterval(pollGreenAPI, 30000);
+}, 10000);
+
