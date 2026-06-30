@@ -353,10 +353,22 @@ app.post('/webhook/greenapi', async function(req, res) {
     var body = req.body;
     if (!body || body.typeWebhook !== 'incomingMessageReceived') return res.json({ ok: true });
     var phone = '+' + body.senderData.sender.replace('@c.us', '');
-    var message = body.messageData && body.messageData.textMessageData ? body.messageData.textMessageData.textMessage : '';
+    var md = body.messageData || {};
+    var message = '';
+    if (md.textMessageData && md.textMessageData.textMessage) {
+      message = md.textMessageData.textMessage;
+    } else if (md.extendedTextMessageData && md.extendedTextMessageData.text) {
+      message = md.extendedTextMessageData.text;
+    } else if (md.fileMessageData) {
+      message = '📎 ' + (md.fileMessageData.caption || md.fileMessageData.fileName || 'קובץ מצורף');
+    } else if (md.imageMessageData) {
+      message = '📷 ' + (md.imageMessageData.caption || 'תמונה');
+    } else if (md.typeMessage) {
+      message = '[' + md.typeMessage + ']';
+    }
     var name = body.senderData.senderName || phone;
-    if (!message) return res.json({ ok: true });
-    console.log('Green API נכנס מ-' + phone + ': ' + message);
+    console.log('Green API webhook - phone:' + phone + ' type:' + (md.typeMessage||'?') + ' msg:' + message);
+    if (!message) { console.log('Green API - הודעה ריקה, מתעלם'); return res.json({ ok: true }); }
     var conv = await sbGetConv(phone);
     var now = new Date().toISOString();
     var msgs = conv ? (conv.messages || []) : [];
@@ -366,8 +378,9 @@ app.post('/webhook/greenapi', async function(req, res) {
     } else {
       await sbUpsertConv({ phone, name, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: 'green', tags: [], created_at: now, updated_at: now });
     }
+    console.log('Green API - נשמר בהצלחה: ' + phone);
     res.json({ ok: true });
-  } catch(e) { console.error('greenapi error:', e.message); res.json({ ok: true }); }
+  } catch(e) { console.error('greenapi error:', e.message, e.stack); res.json({ ok: true }); }
 });
 
 // ===== MISSED CALL =====
@@ -508,6 +521,13 @@ app.post('/api/wa-conversations/:phone/tag', async function(req, res) {
 app.delete('/api/wa-conversations/:phone', async function(req, res) {
   await sbDeleteConv(decodeURIComponent(req.params.phone));
   res.json({ success: true });
+});
+
+app.delete('/api/wa-conversations/delete-all', async function(req, res) {
+  try {
+    await sbFetch('conversations', { method: 'DELETE' });
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/wa-conversations', async function(req, res) {
