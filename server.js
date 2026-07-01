@@ -62,59 +62,46 @@ function saveKbToDisk() {
   try { fs.writeFileSync(KB_FILE, JSON.stringify({ trips: kbTrips, supportText: kbSupportText }), 'utf8'); } catch(e) {}
 }
 
-// ===== SUPABASE AGENTS =====
-async function sbFetch(path, options) {
-  var lastError;
-  for (var attempt = 0; attempt < 3; attempt++) {
-    try {
-      if (attempt > 0) await new Promise(function(r){ setTimeout(r, 1000 * attempt); });
-      var res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_KEY,
-          'Authorization': 'Bearer ' + SUPABASE_KEY,
-          'Prefer': 'return=representation',
-          ...(options && options.headers)
-        }
-      });
-      if (!res.ok) {
-        var err = await res.text();
-        throw new Error('Supabase error: ' + err);
-      }
-      var text = await res.text();
-      return text ? JSON.parse(text) : [];
-    } catch(e) {
-      lastError = e;
-      console.error('sbFetch attempt ' + (attempt+1) + ' failed for ' + path + ': ' + e.message);
-    }
-  }
-  throw lastError;
-}
+// ===== AGENTS - זיכרון זמני =====
+var agentsDB = new Map(); // agent_id -> agent
 
-async function getAgentByEmail(email) {
-  var res = await sbFetch('agents?email=eq.' + encodeURIComponent(email), { method: 'GET' });
-  return res[0] || null;
+// נציג ברירת מחדל - מנהל ראשי
+agentsDB.set('agent_default', {
+  agent_id: 'agent_default',
+  name: 'מנהל',
+  email: 'yanivd@rimon-tours.co.il',
+  password: 'tarbutu2024',
+  role: 'admin',
+  status: 'approved',
+  availability: 'online',
+  created_at: new Date().toISOString()
+});
+
+function getAgentByEmail(email) {
+  for (var a of agentsDB.values()) { if (a.email === email) return Promise.resolve(a); }
+  return Promise.resolve(null);
 }
-async function getAgentById(id) {
-  var res = await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'GET' });
-  return res[0] || null;
+function getAgentById(id) {
+  return Promise.resolve(agentsDB.get(id) || null);
 }
-async function getAllAgents() {
-  return await sbFetch('agents?order=created_at.asc', { method: 'GET' });
+function getAllAgents() {
+  return Promise.resolve(Array.from(agentsDB.values()));
 }
-async function createAgent(agent) {
-  return await sbFetch('agents', { method: 'POST', body: JSON.stringify(agent) });
+function createAgent(agent) {
+  agentsDB.set(agent.agent_id, agent);
+  return Promise.resolve([agent]);
 }
-async function updateAgent(id, data) {
-  return await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) });
+function updateAgent(id, data) {
+  var agent = agentsDB.get(id);
+  if (agent) { Object.assign(agent, data); agentsDB.set(id, agent); }
+  return Promise.resolve([agent]);
 }
-async function deleteAgent(id) {
-  return await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
+function deleteAgent(id) {
+  agentsDB.delete(id);
+  return Promise.resolve([]);
 }
-async function countAgents() {
-  var res = await sbFetch('agents?select=agent_id', { method: 'GET', headers: { 'Prefer': 'count=exact' } });
-  return res.length;
+function countAgents() {
+  return Promise.resolve(agentsDB.size);
 }
 
 // ===== AUTH =====
