@@ -26,7 +26,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
 const conversations = new Map();
-const waConversations = new Map();
 const sessions = new Map();
 
 const CACHE_FILE = path.join(__dirname, 'cache.json');
@@ -277,78 +276,57 @@ async function scanSite() {
 }
 setInterval(function(){ if (kbTrips.length > 0) scanSite(); }, CACHE_TTL);
 
-// ===== SUPABASE CONVERSATIONS =====
-async function sbGetConv(phone) {
-  try {
-    var r = await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), { method: 'GET' });
-    return r[0] || null;
-  } catch(e) { console.error('sbGetConv FAILED for ' + phone + ':', e.message); return null; }
+// ===== CONVERSATIONS - זיכרון זמני (Supabase בתיקון) =====
+var waConversations = new Map();
+
+function sbGetConv(phone) {
+  return Promise.resolve(waConversations.get(phone) || null);
 }
 
-async function sbGetAllConvs() {
-  try {
-    return await sbFetch('conversations?order=updated_at.desc', { method: 'GET' });
-  } catch(e) { console.error('sbGetAllConvs FAILED:', e.message); return []; }
+function sbGetAllConvs() {
+  var list = Array.from(waConversations.values());
+  list.sort(function(a,b){ return new Date(b.updated_at) - new Date(a.updated_at); });
+  return Promise.resolve(list);
 }
 
-async function sbUpsertConv(conv) {
-  try {
-    await sbFetch('conversations', {
-      method: 'POST',
-      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
-      body: JSON.stringify(conv)
-    });
-    console.log('sbUpsertConv SUCCESS for ' + conv.phone);
-    return true;
-  } catch(e) { console.error('sbUpsertConv FAILED for ' + conv.phone + ':', e.message); return false; }
+function sbUpsertConv(conv) {
+  waConversations.set(conv.phone, conv);
+  return Promise.resolve(true);
 }
 
-async function sbUpdateConv(phone, data) {
-  try {
-    await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), {
-      method: 'PATCH',
-      body: JSON.stringify(data)
-    });
-    console.log('sbUpdateConv SUCCESS for ' + phone);
-    return true;
-  } catch(e) { console.error('sbUpdateConv FAILED for ' + phone + ':', e.message); return false; }
+function sbUpdateConv(phone, data) {
+  var conv = waConversations.get(phone);
+  if (!conv) return Promise.resolve(false);
+  Object.assign(conv, data);
+  waConversations.set(phone, conv);
+  return Promise.resolve(true);
 }
 
-// שמירה בטוחה: מנסה PATCH, ואם נכשל (לא קיים) עושה INSERT מלא. תמיד עם retry פעם אחת על כשל רשת.
 async function sbSaveMessage(phone, name, message, channel, role) {
   var now = new Date().toISOString();
-  for (var attempt = 0; attempt < 2; attempt++) {
-    try {
-      var conv = await sbGetConv(phone);
-      var msgs = conv ? (conv.messages || []) : [];
-      msgs.push({ role: role || 'customer', content: message, time: now });
-      if (conv) {
-        var ok = await sbUpdateConv(phone, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
-        if (ok) return true;
-      } else {
-        var ok2 = await sbUpsertConv({ phone, name: name || phone, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: channel || 'green', tags: [], created_at: now, updated_at: now });
-        if (ok2) return true;
-      }
-    } catch(e) {
-      console.error('sbSaveMessage attempt ' + attempt + ' FAILED for ' + phone + ':', e.message);
-    }
-    await new Promise(function(r){ setTimeout(r, 500); });
+  var conv = waConversations.get(phone);
+  var msgs = conv ? (conv.messages || []) : [];
+  msgs.push({ role: role || 'customer', content: message, time: now });
+  if (conv) {
+    Object.assign(conv, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
+  } else {
+    waConversations.set(phone, { phone, name: name || phone, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: channel || 'green', tags: [], created_at: now, updated_at: now });
   }
-  console.error('sbSaveMessage GAVE UP for ' + phone + ' after 2 attempts. Message lost: ' + message);
-  return false;
+  console.log('שמור בזיכרון: ' + phone + ' - ' + message);
+  return true;
 }
 
-async function sbDeleteConv(phone) {
-  try {
-    await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), { method: 'DELETE' });
-  } catch(e) {}
+function sbDeleteConv(phone) {
+  waConversations.delete(phone);
+  return Promise.resolve(true);
 }
 
-async function sbDeleteResolved() {
-  try {
-    var r = await sbFetch('conversations?status=eq.resolved', { method: 'DELETE', headers: { 'Prefer': 'return=representation' } });
-    return Array.isArray(r) ? r.length : 0;
-  } catch(e) { return 0; }
+function sbDeleteResolved() {
+  var deleted = 0;
+  waConversations.forEach(function(c, phone) {
+    if (c.status === 'resolved') { waConversations.delete(phone); deleted++; }
+  });
+  return Promise.resolve(deleted);
 }
 
 // ===== WHATSAPP =====
