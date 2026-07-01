@@ -65,22 +65,32 @@ function saveKbToDisk() {
 
 // ===== SUPABASE AGENTS =====
 async function sbFetch(path, options) {
-  var res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_KEY,
-      'Authorization': 'Bearer ' + SUPABASE_KEY,
-      'Prefer': 'return=representation',
-      ...(options && options.headers)
+  var lastError;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(function(r){ setTimeout(r, 1000 * attempt); });
+      var res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_KEY,
+          'Prefer': 'return=representation',
+          ...(options && options.headers)
+        }
+      });
+      if (!res.ok) {
+        var err = await res.text();
+        throw new Error('Supabase error: ' + err);
+      }
+      var text = await res.text();
+      return text ? JSON.parse(text) : [];
+    } catch(e) {
+      lastError = e;
+      console.error('sbFetch attempt ' + (attempt+1) + ' failed for ' + path + ': ' + e.message);
     }
-  });
-  if (!res.ok) {
-    var err = await res.text();
-    throw new Error('Supabase error: ' + err);
   }
-  var text = await res.text();
-  return text ? JSON.parse(text) : [];
+  throw lastError;
 }
 
 async function getAgentByEmail(email) {
