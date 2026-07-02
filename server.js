@@ -64,8 +64,8 @@ function saveKbToDisk() {
 
 // ===== NEON DATABASE =====
 const { Pool } = require('pg');
-const NEON_URL = process.env.NEON_URL || 'postgresql://neondb_owner:npg_MRkfCg7jvWL1@ep-steep-pond-ai5foi5n-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
-const pool = new Pool({ connectionString: NEON_URL });
+const NEON_URL = process.env.NEON_URL || 'postgresql://neondb_owner:npg_MRkfCg7jvWL1@ep-steep-pond-ai5foi5n-pooler.c-4.us-east-1.aws.neon.tech/neondb';
+const pool = new Pool({ connectionString: NEON_URL, ssl: { rejectUnauthorized: false } });
 
 async function dbQuery(text, params) {
   var client = await pool.connect();
