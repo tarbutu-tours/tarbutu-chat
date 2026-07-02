@@ -370,6 +370,8 @@ app.post('/webhook/whatsapp', async function(req, res) {
   res.set('Content-Type', 'text/xml'); res.send('<Response></Response>');
 });
 
+app.get('/webhook/greenapi', function(req, res) { res.json({ ok: true, status: 'webhook active' }); });
+
 app.post('/webhook/greenapi', async function(req, res) {
   try {
     var body = req.body;
