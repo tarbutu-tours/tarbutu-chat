@@ -62,20 +62,51 @@ function saveKbToDisk() {
   try { fs.writeFileSync(KB_FILE, JSON.stringify({ trips: kbTrips, supportText: kbSupportText }), 'utf8'); } catch(e) {}
 }
 
-// ===== AGENTS - זיכרון זמני =====
-var agentsDB = new Map();
-agentsDB.set('agent_default', { agent_id: 'agent_default', name: 'מנהל', email: 'yanivd@rimon-tours.co.il', password: 'tarbutu2024', role: 'admin', status: 'approved', availability: 'online', created_at: new Date().toISOString() });
+// ===== NEON DATABASE =====
+const { Pool } = require('pg');
+const NEON_URL = process.env.NEON_URL || 'postgresql://neondb_owner:npg_MRkfCg7jvWL1@ep-steep-pond-ai5foi5n-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+const pool = new Pool({ connectionString: NEON_URL });
 
-function getAgentByEmail(email) { for (var a of agentsDB.values()) { if (a.email === email) return Promise.resolve(a); } return Promise.resolve(null); }
-function getAgentById(id) { return Promise.resolve(agentsDB.get(id) || null); }
-function getAllAgents() { return Promise.resolve(Array.from(agentsDB.values())); }
-function createAgent(agent) { agentsDB.set(agent.agent_id, agent); return Promise.resolve([agent]); }
-function updateAgent(id, data) { var a = agentsDB.get(id); if (a) { Object.assign(a, data); agentsDB.set(id, a); } return Promise.resolve([a]); }
-function deleteAgent(id) { agentsDB.delete(id); return Promise.resolve([]); }
-function countAgents() { return Promise.resolve(agentsDB.size); }
+async function dbQuery(text, params) {
+  var client = await pool.connect();
+  try {
+    var res = await client.query(text, params);
+    return res;
+  } finally { client.release(); }
+}
 
-// sbFetch - נשמר לעתיד
-async function sbFetch(path, options) { throw new Error('Supabase not available'); }
+// ===== AGENTS =====
+async function getAgentByEmail(email) {
+  var r = await dbQuery('SELECT * FROM agents WHERE email=$1', [email]);
+  return r.rows[0] || null;
+}
+async function getAgentById(id) {
+  var r = await dbQuery('SELECT * FROM agents WHERE agent_id=$1', [id]);
+  return r.rows[0] || null;
+}
+async function getAllAgents() {
+  var r = await dbQuery('SELECT * FROM agents ORDER BY created_at ASC', []);
+  return r.rows;
+}
+async function createAgent(agent) {
+  await dbQuery('INSERT INTO agents (agent_id,name,email,password,role,status,availability,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (agent_id) DO NOTHING',
+    [agent.agent_id, agent.name, agent.email, agent.password, agent.role, agent.status, agent.availability, agent.created_at||new Date().toISOString()]);
+  return [agent];
+}
+async function updateAgent(id, data) {
+  var sets = Object.keys(data).map(function(k,i){ return k+'=$'+(i+2); }).join(',');
+  var vals = [id].concat(Object.values(data));
+  await dbQuery('UPDATE agents SET '+sets+' WHERE agent_id=$1', vals);
+  return [];
+}
+async function deleteAgent(id) {
+  await dbQuery('DELETE FROM agents WHERE agent_id=$1', [id]);
+  return [];
+}
+async function countAgents() {
+  var r = await dbQuery('SELECT COUNT(*) FROM agents', []);
+  return parseInt(r.rows[0].count);
+}
 
 // ===== AUTH =====
 function generateToken() { return crypto.randomBytes(32).toString('hex'); }
@@ -236,24 +267,81 @@ async function scanSite() {
 }
 setInterval(function(){ if (kbTrips.length > 0) scanSite(); }, CACHE_TTL);
 
-// ===== CONVERSATIONS - זיכרון זמני =====
-var waConversations = new Map();
+// ===== CONVERSATIONS =====
+var waConversations = new Map(); // cache מקומי
 
-function sbGetConv(phone) { return Promise.resolve(waConversations.get(phone) || null); }
-function sbGetAllConvs() { return Promise.resolve(Array.from(waConversations.values()).sort(function(a,b){ return new Date(b.updated_at)-new Date(a.updated_at); })); }
-function sbUpsertConv(conv) { waConversations.set(conv.phone, conv); return Promise.resolve(true); }
-function sbUpdateConv(phone, data) { var c = waConversations.get(phone); if(c){ Object.assign(c,data); waConversations.set(phone,c); } return Promise.resolve(true); }
+async function sbGetConv(phone) {
+  try {
+    var r = await dbQuery('SELECT * FROM conversations WHERE phone=$1', [phone]);
+    if (r.rows[0]) waConversations.set(phone, r.rows[0]);
+    return r.rows[0] || null;
+  } catch(e) { return waConversations.get(phone) || null; }
+}
+
+async function sbGetAllConvs() {
+  try {
+    var r = await dbQuery('SELECT * FROM conversations ORDER BY updated_at DESC', []);
+    r.rows.forEach(function(c){ waConversations.set(c.phone, c); });
+    return r.rows;
+  } catch(e) { return Array.from(waConversations.values()).sort(function(a,b){ return new Date(b.updated_at)-new Date(a.updated_at); }); }
+}
+
+async function sbUpsertConv(conv) {
+  try {
+    waConversations.set(conv.phone, conv);
+    await dbQuery('INSERT INTO conversations (phone,name,last_message,status,assigned_to,channel,tags,messages,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (phone) DO UPDATE SET name=$2,last_message=$3,status=$4,assigned_to=$5,channel=$6,tags=$7,messages=$8,updated_at=$10',
+      [conv.phone, conv.name, conv.last_message, conv.status, conv.assigned_to, conv.channel, JSON.stringify(conv.tags||[]), JSON.stringify(conv.messages||[]), conv.created_at||new Date().toISOString(), conv.updated_at||new Date().toISOString()]);
+    return true;
+  } catch(e) { console.error('sbUpsertConv FAILED:', e.message); return false; }
+}
+
+async function sbUpdateConv(phone, data) {
+  try {
+    var conv = waConversations.get(phone) || {};
+    Object.assign(conv, data);
+    waConversations.set(phone, conv);
+    var sets = []; var vals = [phone]; var i = 2;
+    Object.keys(data).forEach(function(k) {
+      var val = data[k];
+      if (k === 'messages' || k === 'tags') val = JSON.stringify(val);
+      sets.push(k+'=$'+i); vals.push(val); i++;
+    });
+    await dbQuery('UPDATE conversations SET '+sets.join(',')+' WHERE phone=$1', vals);
+    return true;
+  } catch(e) { console.error('sbUpdateConv FAILED:', e.message); return false; }
+}
+
 async function sbSaveMessage(phone, name, message, channel, role) {
   var now = new Date().toISOString();
-  var conv = waConversations.get(phone);
-  var msgs = conv ? (conv.messages || []) : [];
-  msgs.push({ role: role || 'customer', content: message, time: now });
-  if (conv) { Object.assign(conv, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status }); }
-  else { waConversations.set(phone, { phone, name: name||phone, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: channel||'green', tags: [], created_at: now, updated_at: now }); }
-  return true;
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      var conv = await sbGetConv(phone);
+      var msgs = conv ? (conv.messages || []) : [];
+      msgs.push({ role: role || 'customer', content: message, time: now });
+      if (conv) {
+        var ok = await sbUpdateConv(phone, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
+        if (ok) return true;
+      } else {
+        var ok2 = await sbUpsertConv({ phone, name: name||phone, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: channel||'green', tags: [], created_at: now, updated_at: now });
+        if (ok2) return true;
+      }
+    } catch(e) { console.error('sbSaveMessage attempt '+attempt+' FAILED:', e.message); }
+    await new Promise(function(r){ setTimeout(r, 500); });
+  }
+  return false;
 }
-function sbDeleteConv(phone) { waConversations.delete(phone); return Promise.resolve(true); }
-function sbDeleteResolved() { var d=0; waConversations.forEach(function(c,p){ if(c.status==='resolved'){ waConversations.delete(p); d++; } }); return Promise.resolve(d); }
+
+async function sbDeleteConv(phone) {
+  try { waConversations.delete(phone); await dbQuery('DELETE FROM conversations WHERE phone=$1', [phone]); } catch(e) {}
+}
+
+async function sbDeleteResolved() {
+  try {
+    var r = await dbQuery('DELETE FROM conversations WHERE status=$1 RETURNING phone', ['resolved']);
+    r.rows.forEach(function(row){ waConversations.delete(row.phone); });
+    return r.rows.length;
+  } catch(e) { return 0; }
+}
 
 // ===== WHATSAPP =====
 async function sendWhatsApp(to, body) {
