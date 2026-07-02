@@ -638,6 +638,7 @@ app.post('/api/scan-now', function(req, res) {
   scanSite(); res.json({ message: 'סריקה התחילה!' });
 });
 
+app.get('/chat', function(req, res) { var p1=path.join(__dirname,'public','chat-test.html'); var p2=path.join(__dirname,'chat-test.html'); res.sendFile(fs.existsSync(p1)?p1:p2); });
 app.get('/admin', function(req, res) { var p1=path.join(__dirname,'public','admin.html'); var p2=path.join(__dirname,'admin.html'); res.sendFile(fs.existsSync(p1)?p1:p2); });
 app.get('/', function(req, res) { var p1=path.join(__dirname,'public','index.html'); var p2=path.join(__dirname,'index.html'); res.sendFile(fs.existsSync(p1)?p1:p2); });
 
@@ -645,7 +646,7 @@ loadFromDisk();
 app.listen(PORT, function() { console.log('Server running on port ' + PORT); });
 
 // ===== POLLING GREEN API כל 30 שניות =====
-var lastPollTime = Date.now() - 300000; // נתחיל מ-5 דקות אחורה
+var lastPollTime = Date.now() - 7200000; // נתחיל מ-2 שעות אחורה
 
 async function pollGreenAPI() {
   try {
@@ -660,7 +661,7 @@ async function pollGreenAPI() {
     var newChats = chats.filter(function(c) {
       if (!c.id || !c.id.includes('@c.us')) return false;
       if (!c.lastMessage || !c.lastMessage.timestamp) return false;
-      return c.lastMessage.timestamp * 1000 > lastPollTime - 120000;
+      return c.lastMessage.timestamp * 1000 > lastPollTime - 7200000;
     });
 
     console.log('Green API poll - שיחות חדשות: ' + newChats.length);
