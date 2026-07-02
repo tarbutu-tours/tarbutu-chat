@@ -62,46 +62,53 @@ function saveKbToDisk() {
   try { fs.writeFileSync(KB_FILE, JSON.stringify({ trips: kbTrips, supportText: kbSupportText }), 'utf8'); } catch(e) {}
 }
 
-// ===== AGENTS - זיכרון זמני =====
-var agentsDB = new Map(); // agent_id -> agent
+// ===== SUPABASE AGENTS =====
+async function sbFetch(path, options) {
+  var lastError;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(function(r){ setTimeout(r, 1000 * attempt); });
+      var res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_KEY,
+          'Prefer': 'return=representation',
+          ...(options && options.headers)
+        }
+      });
+      if (!res.ok) { var err = await res.text(); throw new Error('Supabase error: ' + err); }
+      var text = await res.text();
+      return text ? JSON.parse(text) : [];
+    } catch(e) { lastError = e; console.error('sbFetch attempt ' + (attempt+1) + ' failed: ' + e.message); }
+  }
+  throw lastError;
+}
 
-// נציג ברירת מחדל - מנהל ראשי
-agentsDB.set('agent_default', {
-  agent_id: 'agent_default',
-  name: 'מנהל',
-  email: 'yanivd@rimon-tours.co.il',
-  password: 'tarbutu2024',
-  role: 'admin',
-  status: 'approved',
-  availability: 'online',
-  created_at: new Date().toISOString()
-});
-
-function getAgentByEmail(email) {
-  for (var a of agentsDB.values()) { if (a.email === email) return Promise.resolve(a); }
-  return Promise.resolve(null);
+async function getAgentByEmail(email) {
+  var res = await sbFetch('agents?email=eq.' + encodeURIComponent(email), { method: 'GET' });
+  return res[0] || null;
 }
-function getAgentById(id) {
-  return Promise.resolve(agentsDB.get(id) || null);
+async function getAgentById(id) {
+  var res = await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'GET' });
+  return res[0] || null;
 }
-function getAllAgents() {
-  return Promise.resolve(Array.from(agentsDB.values()));
+async function getAllAgents() {
+  return await sbFetch('agents?order=created_at.asc', { method: 'GET' });
 }
-function createAgent(agent) {
-  agentsDB.set(agent.agent_id, agent);
-  return Promise.resolve([agent]);
+async function createAgent(agent) {
+  return await sbFetch('agents', { method: 'POST', body: JSON.stringify(agent) });
 }
-function updateAgent(id, data) {
-  var agent = agentsDB.get(id);
-  if (agent) { Object.assign(agent, data); agentsDB.set(id, agent); }
-  return Promise.resolve([agent]);
+async function updateAgent(id, data) {
+  return await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) });
 }
-function deleteAgent(id) {
-  agentsDB.delete(id);
-  return Promise.resolve([]);
+async function deleteAgent(id) {
+  return await sbFetch('agents?agent_id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
 }
-function countAgents() {
-  return Promise.resolve(agentsDB.size);
+async function countAgents() {
+  var res = await sbFetch('agents?select=agent_id', { method: 'GET', headers: { 'Prefer': 'count=exact' } });
+  return res.length;
 }
 
 // ===== AUTH =====
@@ -263,57 +270,75 @@ async function scanSite() {
 }
 setInterval(function(){ if (kbTrips.length > 0) scanSite(); }, CACHE_TTL);
 
-// ===== CONVERSATIONS - זיכרון זמני (Supabase בתיקון) =====
-var waConversations = new Map();
+// ===== SUPABASE CONVERSATIONS =====
+var waConversations = new Map(); // cache מקומי
 
-function sbGetConv(phone) {
-  return Promise.resolve(waConversations.get(phone) || null);
+async function sbGetConv(phone) {
+  try {
+    var r = await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), { method: 'GET' });
+    if (r[0]) waConversations.set(phone, r[0]);
+    return r[0] || null;
+  } catch(e) { return waConversations.get(phone) || null; }
 }
 
-function sbGetAllConvs() {
-  var list = Array.from(waConversations.values());
-  list.sort(function(a,b){ return new Date(b.updated_at) - new Date(a.updated_at); });
-  return Promise.resolve(list);
+async function sbGetAllConvs() {
+  try {
+    var list = await sbFetch('conversations?order=updated_at.desc', { method: 'GET' });
+    list.forEach(function(c){ waConversations.set(c.phone, c); });
+    return list;
+  } catch(e) {
+    return Array.from(waConversations.values()).sort(function(a,b){ return new Date(b.updated_at)-new Date(a.updated_at); });
+  }
 }
 
-function sbUpsertConv(conv) {
-  waConversations.set(conv.phone, conv);
-  return Promise.resolve(true);
+async function sbUpsertConv(conv) {
+  try {
+    waConversations.set(conv.phone, conv);
+    await sbFetch('conversations', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(conv) });
+    return true;
+  } catch(e) { console.error('sbUpsertConv FAILED:', e.message); return false; }
 }
 
-function sbUpdateConv(phone, data) {
-  var conv = waConversations.get(phone);
-  if (!conv) return Promise.resolve(false);
-  Object.assign(conv, data);
-  waConversations.set(phone, conv);
-  return Promise.resolve(true);
+async function sbUpdateConv(phone, data) {
+  try {
+    var conv = waConversations.get(phone) || {};
+    Object.assign(conv, data);
+    waConversations.set(phone, conv);
+    await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), { method: 'PATCH', body: JSON.stringify(data) });
+    return true;
+  } catch(e) { console.error('sbUpdateConv FAILED:', e.message); return false; }
 }
 
 async function sbSaveMessage(phone, name, message, channel, role) {
   var now = new Date().toISOString();
-  var conv = waConversations.get(phone);
-  var msgs = conv ? (conv.messages || []) : [];
-  msgs.push({ role: role || 'customer', content: message, time: now });
-  if (conv) {
-    Object.assign(conv, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
-  } else {
-    waConversations.set(phone, { phone, name: name || phone, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: channel || 'green', tags: [], created_at: now, updated_at: now });
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      var conv = await sbGetConv(phone);
+      var msgs = conv ? (conv.messages || []) : [];
+      msgs.push({ role: role || 'customer', content: message, time: now });
+      if (conv) {
+        var ok = await sbUpdateConv(phone, { messages: msgs, last_message: message, updated_at: now, status: conv.status === 'resolved' ? 'new' : conv.status });
+        if (ok) return true;
+      } else {
+        var ok2 = await sbUpsertConv({ phone, name: name || phone, messages: msgs, last_message: message, status: 'new', assigned_to: null, channel: channel || 'green', tags: [], created_at: now, updated_at: now });
+        if (ok2) return true;
+      }
+    } catch(e) { console.error('sbSaveMessage attempt ' + attempt + ' FAILED:', e.message); }
+    await new Promise(function(r){ setTimeout(r, 500); });
   }
-  console.log('שמור בזיכרון: ' + phone + ' - ' + message);
-  return true;
+  return false;
 }
 
-function sbDeleteConv(phone) {
-  waConversations.delete(phone);
-  return Promise.resolve(true);
+async function sbDeleteConv(phone) {
+  try { waConversations.delete(phone); await sbFetch('conversations?phone=eq.' + encodeURIComponent(phone), { method: 'DELETE' }); } catch(e) {}
 }
 
-function sbDeleteResolved() {
-  var deleted = 0;
-  waConversations.forEach(function(c, phone) {
-    if (c.status === 'resolved') { waConversations.delete(phone); deleted++; }
-  });
-  return Promise.resolve(deleted);
+async function sbDeleteResolved() {
+  try {
+    var r = await sbFetch('conversations?status=eq.resolved', { method: 'DELETE', headers: { 'Prefer': 'return=representation' } });
+    waConversations.forEach(function(c, p){ if(c.status==='resolved') waConversations.delete(p); });
+    return Array.isArray(r) ? r.length : 0;
+  } catch(e) { return 0; }
 }
 
 // ===== WHATSAPP =====
