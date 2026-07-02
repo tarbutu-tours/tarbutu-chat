@@ -657,6 +657,14 @@ async function pollGreenAPI() {
     var chats = await response.json();
     if (!Array.isArray(chats)) { console.log('Green API poll - לא קיבלנו מערך'); return; }
     console.log('Green API poll - סה"כ שיחות: ' + chats.length);
+    console.log('Green API poll - lastPollTime: ' + new Date(lastPollTime).toISOString());
+
+    // הצג זמן של 3 שיחות ראשונות לדיבוג
+    chats.slice(0, 3).forEach(function(c) {
+      if (c.lastMessage && c.lastMessage.timestamp) {
+        console.log('Green API poll - שיחה: ' + c.id + ' זמן: ' + new Date(c.lastMessage.timestamp * 1000).toISOString() + ' fromMe: ' + c.lastMessage.fromMe);
+      }
+    });
 
     var newChats = chats.filter(function(c) {
       if (!c.id || !c.id.includes('@c.us')) return false;
