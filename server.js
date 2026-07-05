@@ -17,7 +17,10 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNtYWV1dXZoa2xxbXZmeWdidWxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE5NTMsImV4cCI6MjA5ODIyNzk1M30.J5Rc3NR8cfl6tzfU1spJVtGQvM8ocb8IfEXA49t8zF4'
 );
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = new Anthropic({ 
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  defaultHeaders: { 'anthropic-version': '2023-06-01' }
+});
 
 const twilioClient = twilio(
   process.env.TWILIO_SID || 'AC0c7aba8165d7a96b7ab11c05b6c57fdf',
@@ -258,13 +261,20 @@ async function getAIResponse(phone, userMessage, systemPrompt) {
 מידע על טיולים:
 ${kbShort}`;
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1000,
+  const response = await axios.post('https://api.anthropic.com/v1/messages', {
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 500,
     system,
     messages: updatedHistory.slice(-20),
+  }, {
+    headers: {
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    timeout: 30000,
   });
-  const aiMessage = response.content[0].text;
+  const aiMessage = response.data.content[0].text;
   const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
   await upsertConversation(phone, { messages: finalHistory, last_message: userMessage, last_reply: aiMessage });
   return aiMessage;
