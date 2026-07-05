@@ -368,12 +368,13 @@ app.post('/webhook/greenapi', async (req, res) => {
     const chatId = body.senderData?.chatId;
     const phone = chatId?.replace('@c.us', '').replace('@g.us', '');
     const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
+    const senderName = body.senderData?.senderName || body.senderData?.pushname || phone;
     if (!text || !phone) return;
-    console.log(`[Webhook Green] ${phone}: ${text}`);
+    console.log(`[Webhook Green] ${senderName} (${phone}): ${text}`);
     const existing = await getConversation(phone);
     const msgs = existing?.messages || [];
     msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
-    await upsertConversation(phone, { messages: msgs, last_message: text, status: existing?.status || 'new', channel: 'green' });
+    await upsertConversation(phone, { messages: msgs, last_message: text, status: existing?.status || 'new', channel: 'green', contact_name: senderName });
   } catch (err) {
     console.error('Webhook error:', err.message);
   }
@@ -612,7 +613,7 @@ app.get('/api/wa-conversations', async (req, res) => {
     // Only WhatsApp conversations (phone numbers, not bot sessions)
     const waConvs = convs.filter(c => c.phone && !c.phone.startsWith('tc_'));
     res.json(waConvs.map(c => ({
-      phone: c.phone, name: c.phone, lastMessage: c.last_message || '',
+      phone: c.phone, name: c.contact_name || c.phone, lastMessage: c.last_message || '',
       status: c.status || 'new', updatedAt: c.updated_at,
       channel: c.channel || 'green', tags: c.tags || [], messages: c.messages || [], isMyConv: false,
     })));
