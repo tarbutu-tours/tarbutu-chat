@@ -655,9 +655,22 @@ app.post('/api/conversations/:id/agent-message', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { phone, message, systemPrompt } = req.body;
-    const reply = await getAIResponse(phone || 'web-' + Date.now(), message, systemPrompt);
-    res.json({ reply });
+    const { phone, message, systemPrompt, sessionId, history, chatType } = req.body;
+    const phoneId = phone || sessionId || 'web-' + Date.now();
+    const reply = await getAIResponse(phoneId, message, systemPrompt);
+    res.json({ reply, message: reply }); // support both d.reply and d.message
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Poll endpoint for agent messages
+app.get('/api/conversations/:id/poll', async (req, res) => {
+  try {
+    const conv = await getConversation(req.params.id);
+    if (!conv || !conv.agentMode) return res.json({ type: 'bot' });
+    const msgs = conv.messages || [];
+    const lastAgent = msgs.filter(m => m.role === 'agent').pop();
+    if (lastAgent) return res.json({ type: 'agent', message: lastAgent.content, agentName: lastAgent.agentName });
+    res.json({ type: 'bot' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
