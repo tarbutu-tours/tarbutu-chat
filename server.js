@@ -250,15 +250,13 @@ async function getAIResponse(phone, userMessage, systemPrompt) {
   const history = conv?.messages || [];
   const updatedHistory = [...history, { role: 'user', content: userMessage }];
   
-  // Get knowledge base
+  // Get knowledge base (max 2000 chars to avoid token limit)
   const kb = await getKnowledge();
-  const system = systemPrompt || `אתה עוזר AI של תרבותו - חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים.
-ענה בעברית בצורה ידידותית ומקצועית.
-השתמש במידע הבא כדי לענות על שאלות לקוחות:
+  const kbShort = kb.slice(0, 2000);
+  const system = systemPrompt || `אתה עוזר AI של תרבותו - חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים. ענה בעברית בצורה ידידותית ומקצועית. אם אין לך מידע מספיק, הצע ללקוח לדבר עם נציג.
 
-${kb}
-
-אם אין לך מידע מספיק, הצע ללקוח לדבר עם נציג.`;
+מידע על טיולים:
+${kbShort}`;
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
