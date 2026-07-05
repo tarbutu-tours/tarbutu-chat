@@ -192,6 +192,7 @@ select.avail-select option{color:#333}
           <div class="form-group"><label>אימייל</label><input type="email" id="login-email" placeholder="your@email.com"></div>
           <div class="form-group"><label>סיסמה</label><div style="position:relative"><input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()" style="width:100%;padding-left:36px"><button type="button" onclick="togglePass('login-pass',this)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;color:#adb5bd;font-size:16px">👁</button></div></div>
           <button class="auth-btn" onclick="doLogin()">התחבר</button>
+          <div style="text-align:center;margin-top:8px"><a href="#" onclick="showForgotPassword()" style="font-size:12px;color:var(--p);text-decoration:none">שכחתי סיסמה</a></div>
         </div>
       </div>
       <div id="register-form" style="display:none">
@@ -213,7 +214,7 @@ select.avail-select option{color:#333}
   <div class="nav-logo">תרבותו <span>AI</span></div>
   <button class="nav-tab active" onclick="showPage('control')" id="tab-control"><i class="ti ti-layout-dashboard"></i> שיחות</button>
   <button class="nav-tab" id="tab-agents" style="display:none" onclick="showPage('agents')"><i class="ti ti-users"></i> נציגים</button>
-  <button class="nav-tab" onclick="showPage('knowledge')" id="tab-knowledge"><i class="ti ti-database"></i> מאגר</button>
+  <button class="nav-tab" id="tab-knowledge" style="display:none" onclick="showPage('knowledge')"><i class="ti ti-database"></i> מאגר</button>
   <button class="nav-tab" id="tab-reports" style="display:none" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i> דוחות</button>
   <div class="agent-info">
     <div class="avail-dot" id="avail-dot"></div>
@@ -513,6 +514,7 @@ function initApp() {
   if (currentAgent.role === 'admin') {
     document.getElementById('tab-agents').style.display = 'flex';
     document.getElementById('tab-reports').style.display = 'flex';
+    document.getElementById('tab-knowledge').style.display = 'flex';
   }
   loadAllConversations();
   setInterval(loadAllConversations, 5000);
@@ -1127,6 +1129,15 @@ async function deleteAll() {
 }
 
 function showToast(msg){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
+
+function showForgotPassword() {
+  var email = prompt('הכנס את האימייל שלך:');
+  if (!email) return;
+  fetch('/api/agents/forgot-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email}) })
+    .then(r => r.json())
+    .then(d => { showAuthMsg('נשלח מייל לאיפוס סיסמה ✅', 'ok'); })
+    .catch(() => showAuthMsg('שגיאה', 'err'));
+}
 
 checkAuth();
 </script>
