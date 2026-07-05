@@ -122,16 +122,147 @@ async function sendGreenAPI(chatId, message) {
   }
 }
 
+// ── Knowledge Base ───────────────────────────────────────
+
+const TRIPS = [
+  {name:"קרוז לאיסלנד", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost31797/"},
+  {name:"קרוזים לאוסטרליה וניו זילנד", url:"https://tarbutu.co.il/קרוזים-לאוסטרליה-וניו-זילנד/"},
+  {name:"רון וסון 13.7", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost33514/"},
+  {name:"רון וסון 19.10", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost30742/"},
+  {name:"רון וסון 24.10", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost34615/"},
+  {name:"דאורו 10.7", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost33433/"},
+  {name:"דאורו 22.8", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost33532/"},
+  {name:"דאורו 19.10", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost30769/"},
+  {name:"הכף הצפוני 26", url:"https://tarbutu.co.il/%d7%a7%d7%a8%d7%95%d7%96-%d7%9e%d7%90%d7%95%d7%a8%d7%92%d7%9f-%d7%9c%d7%a0%d7%95%d7%a8%d7%91%d7%92%d7%99%d7%94-%d7%95%d7%94%d7%9b%d7%a3-%d7%94%d7%a6%d7%a4%d7%95%d7%a0%d7%99-3/"},
+  {name:"אלסקה 26", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost30133/"},
+  {name:"ניו אינגלנד", url:"https://tarbutu.co.il/%d7%98%d7%99%d7%95%d7%9c-%d7%9e%d7%90%d7%95%d7%a8%d7%92%d7%9f-%d7%9e%d7%a9%d7%95%d7%9c%d7%91-%d7%91%d7%a7%d7%a8%d7%95%d7%96-%d7%91%d7%a0%d7%99%d7%95-%d7%90%d7%99%d7%a0%d7%92%d7%9c%d7%a0%d7%93/"},
+  {name:"אוסטרליה נוב 26", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost32521/"},
+  {name:"אוסטרליה 7.1.27", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost35331/"},
+  {name:"אוסט 02.27", url:"https://tarbutu.co.il/%d7%a7%d7%a8%d7%95%d7%96-%d7%9e%d7%90%d7%95%d7%a8%d7%92%d7%9f-%d7%a1%d7%95%d7%91%d7%91-%d7%a0%d7%99%d7%95-%d7%96%d7%99%d7%9c%d7%a0%d7%93-%d7%9b%d7%95%d7%9c%d7%9c-%d7%94%d7%90%d7%99-%d7%98%d7%a1-3/"},
+  {name:"אוס 03/27", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost35491/"},
+  {name:"האיים הברטיים", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost29762/"},
+  {name:"האיים הברטיים 13.8.27", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost33393/"},
+  {name:"האיים הקנרים", url:"https://tarbutu.co.il/%d7%a7%d7%a8%d7%95%d7%96%d7%99%d7%9d-%d7%9e%d7%90%d7%95%d7%a8%d7%92%d7%a0%d7%99%d7%9d-%d7%9c%d7%90%d7%99%d7%99%d7%9d-%d7%94%d7%a7%d7%a0%d7%a8%d7%99%d7%9d/"},
+  {name:"יפן 20/10/26", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost32506/"},
+  {name:"יפן וקוריאה 17/11/26", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost32029/"},
+  {name:"יפן 6/11/26", url:"https://tarbutu.co.il/%d7%a7%d7%a8%d7%95%d7%96-%d7%a1%d7%95%d7%91%d7%91-%d7%99%d7%a4%d7%9f-%d7%91%d7%aa%d7%a7%d7%95%d7%a4%d7%aa-%d7%94%d7%a9%d7%9c%d7%9b%d7%aa-3-2/"},
+  {name:"מזרח הרחוק 19/11", url:"https://tarbutu.co.il/%d7%9e%d7%96%d7%a8%d7%97-%d7%a8%d7%97%d7%95%d7%a7-%d7%98%d7%99%d7%95%d7%9c-%d7%9e%d7%a9%d7%95%d7%9c%d7%91-%d7%91%d7%a7%d7%a8%d7%95%d7%96/"},
+  {name:"מזרח הרחוק 30/12", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost31540/"},
+];
+
+let knowledgeCache = null;
+let lastScanTime = null;
+
+async function scrapeUrl(url) {
+  try {
+    const res = await axios.get(url, { 
+      timeout: 10000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TarbutuBot/1.0)' }
+    });
+    const html = res.data;
+    // Remove HTML tags and get clean text
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim()
+      .slice(0, 3000); // Max 3000 chars per page
+    return text;
+  } catch (err) {
+    console.error(`[Scan] Error scraping ${url}: ${err.message}`);
+    return null;
+  }
+}
+
+async function buildKnowledgeBase() {
+  console.log('[KB] Building knowledge base...');
+  
+  // Get trips from Supabase
+  const { data: dbTrips } = await supabase.from('knowledge_base').select('*');
+  const { data: dbText } = await supabase.from('knowledge_text').select('*').order('id', { ascending: false }).limit(1);
+  
+  let kb = '=== מאגר מידע תרבותו ===\n\n';
+  kb += 'תרבותו היא חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים.\n\n';
+  kb += '=== טיולים זמינים ===\n';
+  
+  // Add trips from DB if available
+  if (dbTrips && dbTrips.length > 0) {
+    for (const trip of dbTrips) {
+      kb += `\n--- ${trip.name} ---\n`;
+      kb += `קישור: ${trip.url}\n`;
+      if (trip.content) kb += `${trip.content.slice(0, 500)}\n`;
+    }
+  } else {
+    // Use static list
+    for (const trip of TRIPS) {
+      kb += `\n- ${trip.name}: ${trip.url}\n`;
+    }
+  }
+  
+  // Add support text
+  if (dbText && dbText.length > 0) {
+    kb += '\n=== מדיניות ושירות ===\n' + dbText[0].content;
+  }
+  
+  knowledgeCache = kb;
+  lastScanTime = new Date();
+  console.log('[KB] Knowledge base ready:', kb.length, 'chars');
+  return kb;
+}
+
+async function scanAndSaveTrips() {
+  console.log('[Scan] Starting scan of', TRIPS.length, 'trips...');
+  let scanned = 0;
+  for (const trip of TRIPS) {
+    const content = await scrapeUrl(trip.url);
+    if (content) {
+      await supabase.from('knowledge_base').upsert([{
+        name: trip.name,
+        url: trip.url,
+        content,
+        type: 'trip',
+        scanned_at: new Date().toISOString(),
+      }], { onConflict: 'url' });
+      scanned++;
+      console.log('[Scan] Scanned:', trip.name);
+    }
+    await new Promise(r => setTimeout(r, 1000)); // 1 sec delay
+  }
+  console.log('[Scan] Done:', scanned, 'trips scanned');
+  knowledgeCache = null; // Reset cache
+}
+
+async function getKnowledge() {
+  if (!knowledgeCache) await buildKnowledgeBase();
+  return knowledgeCache;
+}
+
 // ── AI — בוט בלבד ────────────────────────────────────────
 
 async function getAIResponse(phone, userMessage, systemPrompt) {
   const conv = await getConversation(phone);
   const history = conv?.messages || [];
   const updatedHistory = [...history, { role: 'user', content: userMessage }];
+  
+  // Get knowledge base
+  const kb = await getKnowledge();
+  const system = systemPrompt || `אתה עוזר AI של תרבותו - חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים.
+ענה בעברית בצורה ידידותית ומקצועית.
+השתמש במידע הבא כדי לענות על שאלות לקוחות:
+
+${kb}
+
+אם אין לך מידע מספיק, הצע ללקוח לדבר עם נציג.`;
+
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 1000,
-    system: systemPrompt || 'אתה עוזר AI של תרבותו - חברת טיולים ישראלית. ענה בעברית בצורה ידידותית ומקצועית.',
+    system,
     messages: updatedHistory.slice(-20),
   });
   const aiMessage = response.content[0].text;
@@ -532,9 +663,30 @@ app.post('/api/chat', async (req, res) => {
 
 // ── KB / Reports / Status ─────────────────────────────────
 
-app.post('/api/kb-update', (req, res) => { res.json({ success: true }); });
-app.post('/api/scan-now', (req, res) => { res.json({ success: true }); });
-app.get('/api/cache-status', (req, res) => { res.json({ hasCache: false, isScanning: false, contentLength: 0, pagesScanned: 0, totalPages: 0 }); });
+app.post('/api/kb-update', async (req, res) => { 
+  try {
+    const { trips, supportText } = req.body;
+    if (supportText) {
+      await supabase.from('knowledge_text').upsert([{ id: 1, content: supportText, updated_at: new Date().toISOString() }]);
+    }
+    knowledgeCache = null; // Reset cache
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/scan-now', async (req, res) => { 
+  res.json({ success: true, message: 'סריקה התחילה' });
+  scanAndSaveTrips().catch(console.error);
+});
+app.get('/api/cache-status', (req, res) => { 
+  res.json({ 
+    hasCache: !!knowledgeCache, 
+    isScanning: false, 
+    contentLength: knowledgeCache ? knowledgeCache.length : 0,
+    lastScanned: lastScanTime,
+    pagesScanned: TRIPS.length,
+    totalPages: TRIPS.length
+  }); 
+});
 app.post('/api/import-green', (req, res) => { res.json({ success: true, message: 'לא זמין' }); });
 
 app.get('/api/reports', async (req, res) => {
@@ -561,6 +713,7 @@ app.get('/api/status', async (req, res) => {
   res.json({ status: 'ok', supabase: 'connected', conversations: convs.length, timestamp: new Date().toISOString() });
 });
 
+app.use(express.static(path.join(__dirname)));
 app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, 'admin.html')); });
 app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
