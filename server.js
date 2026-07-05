@@ -32,6 +32,8 @@ const GREEN_API_TOKEN    = process.env.GREEN_API_TOKEN    || 'f7434d0d76894545ad
 const GREEN_API_BASE     = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE}`;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL         = 'noreply@rimon-tours.co.il';
+const PIPEDRIVE_TOKEN    = process.env.PIPEDRIVE_TOKEN || 'e30e3a85a358ecf8918b588d8af2fc31de1672dd';
+const PIPEDRIVE_STAGE_ID = 5398919; // ליד טרום שיחה
 const BASE_URL           = 'https://tarbutu-chat-production.up.railway.app';
 
 // ── Password helpers ──────────────────────────────────────
@@ -59,6 +61,34 @@ async function sendEmail(to, subject, html) {
     console.log(`[Email] Sent to ${to}`);
   } catch (err) {
     console.error('[Email] Error:', err.response?.data || err.message);
+  }
+}
+
+// ── Pipedrive ─────────────────────────────────────────────
+
+async function createPipedriveLead(name, phone, summary) {
+  try {
+    // 1. Create person
+    const personRes = await axios.post(
+      `https://api.pipedrive.com/v1/persons?api_token=${PIPEDRIVE_TOKEN}`,
+      { name, phone: [{ value: phone, primary: true }] }
+    );
+    const personId = personRes.data.data?.id;
+
+    // 2. Create deal
+    await axios.post(
+      `https://api.pipedrive.com/v1/deals?api_token=${PIPEDRIVE_TOKEN}`,
+      {
+        title: `פנייה מבוט — ${name}`,
+        stage_id: PIPEDRIVE_STAGE_ID,
+        person_id: personId,
+        source_name: 'בוט',
+        note: summary || 'פנייה מבוט תרבותו',
+      }
+    );
+    console.log(`[Pipedrive] Lead created for ${name} ${phone}`);
+  } catch (err) {
+    console.error('[Pipedrive] Error:', err.response?.data || err.message);
   }
 }
 
@@ -298,6 +328,21 @@ ${kbShort}`;
   const aiMessage = response.data.content[0].text;
   const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
   await upsertConversation(phone, { messages: finalHistory, last_message: userMessage, last_reply: aiMessage });
+  
+  // Detect if user left contact details
+  const phonePattern = /0[5-9]\d{8}|05\d[-\s]?\d{7}/;
+  const hasPhone = phonePattern.test(userMessage);
+  if (hasPhone && updatedHistory.length > 2) {
+    // Extract name from conversation
+    const allText = updatedHistory.map(m => m.content).join(' ');
+    const nameMatch = allText.match(/שמ[יי]\s+([א-ת]+(?:\s+[א-ת]+)?)/);
+    const detectedName = nameMatch ? nameMatch[1] : 'לקוח מהבוט';
+    const detectedPhone = userMessage.match(phonePattern)?.[0] || userMessage;
+    const summary = `פנייה מבוט תרבותו
+${allText.slice(0, 300)}`;
+    createPipedriveLead(detectedName, detectedPhone, summary).catch(console.error);
+  }
+  
   return aiMessage;
 }
 
