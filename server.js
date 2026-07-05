@@ -27,7 +27,7 @@ const twilioClient = twilio(
 const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE || '7107666399';
 const GREEN_API_TOKEN    = process.env.GREEN_API_TOKEN    || 'f7434d0d76894545ad7050789742777d96781ce277af4a278f';
 const GREEN_API_BASE     = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE}`;
-const RESEND_API_KEY     = process.env.RESEND_API_KEY || 're_FX2xvLnL_7xi1qKtSuA26t8TLpWRb7E7V';
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL         = 'noreply@rimon-tours.co.il';
 const BASE_URL           = 'https://tarbutu-chat-production.up.railway.app';
 
