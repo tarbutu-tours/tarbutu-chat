@@ -621,6 +621,7 @@ function renderConvList() {
   const el = document.getElementById('conv-list');
   if (activeChannel === 'wa') {
     var list = (window._waList || []).filter(function(c) {
+      if (c.phone && c.phone.startsWith('tc_')) return false;
       if (currentFilter === 'new') return c.status === 'new';
       if (currentFilter === 'open') return c.status === 'open';
       if (currentFilter === 'resolved') return c.status === 'resolved';
@@ -648,15 +649,18 @@ function renderConvList() {
         </div>
       </div>`).join('');
   } else {
-    var blist = window._botList || [];
+    var blist = (window._botList || []).filter(c => c.id && c.id.startsWith('tc_'));
     if (!blist.length) { el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:#adb5bd;font-size:12px">אין שיחות בוט</div>'; return; }
     el.innerHTML = blist.map(c=>`
       <div class="conv-item ${c.id===activeConvId?'active-conv':''}" onclick="openBotConv('${c.id}')">
-        <div class="conv-name"><i class="ti ti-robot" style="font-size:12px;color:var(--p)"></i>${c.chatType==='support'?'🎧':'🚢'} לקוח ${c.id.slice(-4)}</div>
-        <div class="conv-preview">${c.lastMessage||'שיחה'}</div>
+        <div class="conv-name" style="display:flex;align-items:center;justify-content:space-between">
+          <span><i class="ti ti-robot" style="font-size:12px;color:var(--p)"></i> שיחה מבוט</span>
+          <button class="btn btn-sm btn-danger" style="padding:2px 6px;font-size:10px" onclick="event.stopPropagation();deleteBotConv('${c.id}')"><i class="ti ti-trash"></i></button>
+        </div>
+        <div class="conv-preview">${c.last_message||c.lastMessage||'שיחה'}</div>
         <div class="conv-meta">
           <span class="badge ${c.agentMode?'badge-ok':'badge-warn'}">${c.agentMode?'👤 נציג':'🤖 בוט'}</span>
-          <span class="conv-time">${timeAgo(c.updatedAt)}</span>
+          <span class="conv-time">${timeAgo(c.updatedAt||c.updated_at)}</span>
         </div>
       </div>`).join('');
   }
@@ -1137,6 +1141,15 @@ function showForgotPassword() {
     .then(r => r.json())
     .then(d => { showAuthMsg('נשלח מייל לאיפוס סיסמה ✅', 'ok'); })
     .catch(() => showAuthMsg('שגיאה', 'err'));
+}
+
+async function deleteBotConv(id) {
+  if (!confirm('למחוק שיחת בוט זו?')) return;
+  await fetch('/api/conversations/' + id, { method: 'DELETE' });
+  showToast('שיחת בוט נמחקה ✅');
+  activeConvId = null;
+  document.getElementById('chat-area').innerHTML = '<div class="chat-empty"><i class="ti ti-message-dots"></i><span>בחר שיחה מהרשימה</span></div>';
+  loadAllConversations();
 }
 
 checkAuth();
