@@ -245,6 +245,7 @@ async function getKnowledge() {
 // ── AI — בוט בלבד ────────────────────────────────────────
 
 async function getAIResponse(phone, userMessage, systemPrompt) {
+  console.log('[AI] Request from', phone, ':', userMessage.slice(0, 50));
   const conv = await getConversation(phone);
   const history = conv?.messages || [];
   const updatedHistory = [...history, { role: 'user', content: userMessage }];
@@ -659,7 +660,10 @@ app.post('/api/chat', async (req, res) => {
     const phoneId = phone || sessionId || 'web-' + Date.now();
     const reply = await getAIResponse(phoneId, message, systemPrompt);
     res.json({ reply, message: reply }); // support both d.reply and d.message
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error('[Chat Error]', err.message, err.stack);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 // Poll endpoint for agent messages
