@@ -140,6 +140,15 @@ async function pollGreenAPI() {
       const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
       if (text && phone && !chatId.includes('@g.us')) {
         console.log(`[Polling] Message from ${phone}: ${text}`);
+        const existingConv = await getConversation(phone);
+        const existingMsgs = existingConv?.messages || [];
+        existingMsgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
+        await upsertConversation(phone, {
+          messages: existingMsgs,
+          last_message: text,
+          status: existingConv?.status || 'new',
+          channel: 'green',
+        });
         const reply = await getAIResponse('default', phone, text);
         await sendGreenAPI(chatId, reply);
       }
@@ -163,6 +172,16 @@ app.post('/webhook/greenapi', async (req, res) => {
     const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
     if (!text || !phone) return;
     console.log(`[Webhook Green] ${phone}: ${text}`);
+    // Save incoming message to Supabase with WA status
+    const existingConv = await getConversation(phone);
+    const existingMsgs = existingConv?.messages || [];
+    existingMsgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
+    await upsertConversation(phone, {
+      messages: existingMsgs,
+      last_message: text,
+      status: existingConv?.status || 'new',
+      channel: 'green',
+    });
     const reply = await getAIResponse('default', phone, text);
     await sendGreenAPI(chatId, reply);
   } catch (err) {
