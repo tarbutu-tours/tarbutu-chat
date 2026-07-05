@@ -76,16 +76,26 @@ async function createPipedriveLead(name, phone, summary) {
     const personId = personRes.data.data?.id;
 
     // 2. Create deal
-    await axios.post(
+    const dealRes = await axios.post(
       `https://api.pipedrive.com/v1/deals?api_token=${PIPEDRIVE_TOKEN}`,
       {
         title: `פנייה מבוט — ${name}`,
         stage_id: PIPEDRIVE_STAGE_ID,
         person_id: personId,
-        source_name: 'בוט',
-        note: summary || 'פנייה מבוט תרבותו',
       }
     );
+    const dealId = dealRes.data.data?.id;
+
+    // 3. Add note to deal
+    if (dealId && summary) {
+      await axios.post(
+        `https://api.pipedrive.com/v1/notes?api_token=${PIPEDRIVE_TOKEN}`,
+        {
+          content: `מקור: בוט תרבותו\n\n${summary}`,
+          deal_id: dealId,
+        }
+      );
+    }
     console.log(`[Pipedrive] Lead created for ${name} ${phone}`);
   } catch (err) {
     console.error('[Pipedrive] Error:', err.response?.data || err.message);
