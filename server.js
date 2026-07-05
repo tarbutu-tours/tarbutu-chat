@@ -82,6 +82,7 @@ async function createPipedriveLead(name, phone, summary) {
         title: `פנייה מבוט — ${name}`,
         stage_id: PIPEDRIVE_STAGE_ID,
         person_id: personId,
+        '862b7d3afb751251d1d3dee296f39949da0ca889': 298, // מקור הגעה = בוט
       }
     );
     const dealId = dealRes.data.data?.id;
