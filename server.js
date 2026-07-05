@@ -5,6 +5,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const twilio = require('twilio');
 const axios = require('axios');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 app.use(cors());
@@ -26,15 +27,37 @@ const twilioClient = twilio(
 const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE || '7107666399';
 const GREEN_API_TOKEN    = process.env.GREEN_API_TOKEN    || 'f7434d0d76894545ad7050789742777d96781ce277af4a278f';
 const GREEN_API_BASE     = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE}`;
+const RESEND_API_KEY     = process.env.RESEND_API_KEY || 're_FX2xvLnL_7xi1qKtSuA26t8TLpWRb7E7V';
+const FROM_EMAIL         = 'noreply@rimon-tours.co.il';
+const BASE_URL           = 'https://tarbutu-chat-production.up.railway.app';
 
-const ADMIN_AGENT = {
-  id: 'admin-1',
-  name: 'יניב',
-  email: 'yanivd@rimon-tours.co.il',
-  role: 'admin',
-  status: 'approved',
-  availability: 'online',
-};
+// ── Password helpers ──────────────────────────────────────
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + 'tarbutu-salt-2024').digest('hex');
+}
+
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// ── Email via Resend ──────────────────────────────────────
+
+async function sendEmail(to, subject, html) {
+  try {
+    await axios.post('https://api.resend.com/emails', {
+      from: `תרבותו AI <${FROM_EMAIL}>`,
+      to,
+      subject,
+      html,
+    }, {
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }
+    });
+    console.log(`[Email] Sent to ${to}`);
+  } catch (err) {
+    console.error('[Email] Error:', err.response?.data || err.message);
+  }
+}
 
 // ── Supabase helpers ──────────────────────────────────────
 
@@ -62,46 +85,31 @@ async function getAllConversations() {
   return data || [];
 }
 
+async function getAgentByEmail(email) {
+  const { data } = await supabase.from('agents').select('*').eq('email', email.toLowerCase()).single();
+  return data;
+}
+
+async function getAgentById(id) {
+  const { data } = await supabase.from('agents').select('*').eq('id', id).single();
+  return data;
+}
+
 async function getAllAgents() {
   const { data, error } = await supabase.from('agents').select('*').order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
 }
 
-async function updateAgent(agentId, updates) {
-  const { data, error } = await supabase.from('agents').update(updates).eq('id', agentId).select().single();
+async function updateAgent(id, updates) {
+  const { data, error } = await supabase.from('agents').update(updates).eq('id', id).select().single();
   if (error) throw error;
   return data;
 }
 
-async function deleteAgent(agentId) {
-  const { error } = await supabase.from('agents').delete().eq('id', agentId);
+async function deleteAgentById(id) {
+  const { error } = await supabase.from('agents').delete().eq('id', id);
   if (error) throw error;
-}
-
-// ── AI — רק לבוט ─────────────────────────────────────────
-
-async function getAIResponse(phone, userMessage, systemPrompt) {
-  try {
-    const conv = await getConversation(phone);
-    const history = conv?.messages || [];
-    const updatedHistory = [...history, { role: 'user', content: userMessage }];
-
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
-      system: systemPrompt || 'אתה עוזר AI של תרבותו - חברת טיולים ישראלית. ענה בעברית בצורה ידידותית ומקצועית.',
-      messages: updatedHistory.slice(-20),
-    });
-
-    const aiMessage = response.content[0].text;
-    const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
-    await upsertConversation(phone, { messages: finalHistory, last_message: userMessage, last_reply: aiMessage });
-    return aiMessage;
-  } catch (err) {
-    console.error('AI Error:', err.message);
-    throw err;
-  }
 }
 
 // ── Green API ─────────────────────────────────────────────
@@ -114,123 +122,268 @@ async function sendGreenAPI(chatId, message) {
   }
 }
 
-// ── Webhook Green API — שומר בלבד, ללא AI ────────────────
+// ── AI — בוט בלבד ────────────────────────────────────────
+
+async function getAIResponse(phone, userMessage, systemPrompt) {
+  const conv = await getConversation(phone);
+  const history = conv?.messages || [];
+  const updatedHistory = [...history, { role: 'user', content: userMessage }];
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1000,
+    system: systemPrompt || 'אתה עוזר AI של תרבותו - חברת טיולים ישראלית. ענה בעברית בצורה ידידותית ומקצועית.',
+    messages: updatedHistory.slice(-20),
+  });
+  const aiMessage = response.content[0].text;
+  const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
+  await upsertConversation(phone, { messages: finalHistory, last_message: userMessage, last_reply: aiMessage });
+  return aiMessage;
+}
+
+// ── Webhooks ──────────────────────────────────────────────
 
 app.post('/webhook/greenapi', async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
     if (body?.typeWebhook !== 'incomingMessageReceived') return;
-
     const msg = body.messageData;
     const chatId = body.senderData?.chatId;
     const phone = chatId?.replace('@c.us', '').replace('@g.us', '');
     const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
-
     if (!text || !phone) return;
-
     console.log(`[Webhook Green] ${phone}: ${text}`);
-
-    // שמור ב-Supabase — ללא מענה AI
     const existing = await getConversation(phone);
     const msgs = existing?.messages || [];
     msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
-    await upsertConversation(phone, {
-      messages: msgs,
-      last_message: text,
-      status: existing?.status || 'new',
-      channel: 'green',
-    });
-
-    console.log(`[Webhook Green] Saved to admin — no AI response`);
+    await upsertConversation(phone, { messages: msgs, last_message: text, status: existing?.status || 'new', channel: 'green' });
   } catch (err) {
     console.error('Webhook error:', err.message);
   }
 });
-
-// ── Webhook Twilio — שומר בלבד, ללא AI ───────────────────
 
 app.post('/webhook/whatsapp', async (req, res) => {
   try {
     const from = req.body.From?.replace('whatsapp:', '');
     const text = req.body.Body;
     if (!from || !text) return res.sendStatus(200);
-
     console.log(`[Twilio] ${from}: ${text}`);
-
-    // שמור ב-Supabase — ללא מענה AI
     const existing = await getConversation(from);
     const msgs = existing?.messages || [];
     msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'twilio' });
-    await upsertConversation(from, {
-      messages: msgs,
-      last_message: text,
-      status: existing?.status || 'new',
-      channel: 'twilio',
-    });
-
+    await upsertConversation(from, { messages: msgs, last_message: text, status: existing?.status || 'new', channel: 'twilio' });
     res.sendStatus(200);
   } catch (err) {
-    console.error('Twilio webhook error:', err.message);
     res.sendStatus(500);
-  }
-});
-
-// ── בוט Web — עם AI ───────────────────────────────────────
-
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { phone, message, systemPrompt } = req.body;
-    const reply = await getAIResponse(phone || 'web-user-' + Date.now(), message, systemPrompt);
-    res.json({ reply });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
 // ── Auth ──────────────────────────────────────────────────
 
-app.post('/api/agents/login', (req, res) => {
-  const { email, password } = req.body;
-  if (email === 'yanivd@rimon-tours.co.il' && password === 'tarbutu2024') {
-    res.json({ success: true, token: 'admin-token-tarbutu', agent: ADMIN_AGENT });
-  } else {
-    res.status(401).json({ error: 'פרטי התחברות שגויים' });
+app.post('/api/agents/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const agent = await getAgentByEmail(email);
+    if (!agent) return res.status(401).json({ error: 'פרטי התחברות שגויים' });
+    if (agent.status !== 'approved') return res.status(401).json({ error: 'המשתמש ממתין לאישור' });
+    
+    // בדוק סיסמה
+    const hashed = hashPassword(password);
+    if (agent.password !== hashed) return res.status(401).json({ error: 'פרטי התחברות שגויים' });
+    
+    // צור token
+    const token = generateToken();
+    await updateAgent(agent.id, { token, last_login: new Date().toISOString() });
+    
+    res.json({ success: true, token, agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role, availability: agent.availability } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/agents/register', (req, res) => {
-  res.status(403).json({ error: 'הרשמה לא מאושרת' });
-});
+app.post('/api/agents/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ error: 'נא למלא את כל השדות' });
+    
+    const existing = await getAgentByEmail(email);
+    if (existing) return res.status(400).json({ error: 'אימייל כבר קיים במערכת' });
+    
+    const id = 'agent-' + Date.now();
+    const hashed = hashPassword(password);
+    
+    await supabase.from('agents').insert([{
+      id, name, email: email.toLowerCase(), password: hashed,
+      role: 'agent', status: 'pending', availability: 'online',
+      created_at: new Date().toISOString()
+    }]);
 
-app.get('/api/agents/me', (req, res) => { res.json(ADMIN_AGENT); });
-app.post('/api/agents/logout', (req, res) => { res.json({ success: true }); });
-app.post('/api/agents/availability', (req, res) => { res.json({ success: true }); });
-app.post('/api/login', (req, res) => {
-  const { email, password } = req.body;
-  if (email === 'yanivd@rimon-tours.co.il' && password === 'tarbutu2024') {
-    res.json({ success: true, token: 'admin-token-tarbutu', agent: ADMIN_AGENT });
-  } else {
-    res.status(401).json({ error: 'פרטי התחברות שגויים' });
+    // שלח מייל למנהל
+    await sendEmail('yanivd@rimon-tours.co.il', 'בקשת הצטרפות חדשה', `
+      <div dir="rtl" style="font-family:Arial;padding:20px">
+        <h2>בקשת הצטרפות חדשה</h2>
+        <p><strong>שם:</strong> ${name}</p>
+        <p><strong>אימייל:</strong> ${email}</p>
+        <p>כנס למערכת הניהול לאשר או לדחות את הבקשה.</p>
+        <a href="${BASE_URL}/admin" style="background:#1a6fa8;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px">כנס למערכת</a>
+      </div>
+    `);
+
+    res.json({ success: true, message: 'הבקשה נשלחה למנהל לאישור' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ── Agents ────────────────────────────────────────────────
+app.get('/api/agents/me', async (req, res) => {
+  try {
+    const token = req.headers['x-auth-token'];
+    if (!token) return res.status(401).json({ error: 'לא מחובר' });
+    const { data } = await supabase.from('agents').select('*').eq('token', token).single();
+    if (!data) return res.status(401).json({ error: 'לא מחובר' });
+    res.json({ id: data.id, name: data.name, email: data.email, role: data.role, availability: data.availability });
+  } catch (err) {
+    res.status(401).json({ error: 'לא מחובר' });
+  }
+});
+
+app.post('/api/agents/logout', async (req, res) => {
+  try {
+    const token = req.headers['x-auth-token'];
+    if (token) {
+      const { data } = await supabase.from('agents').select('id').eq('token', token).single();
+      if (data) await updateAgent(data.id, { token: null });
+    }
+  } catch (e) {}
+  res.json({ success: true });
+});
+
+app.post('/api/agents/availability', async (req, res) => {
+  try {
+    const token = req.headers['x-auth-token'];
+    const { data } = await supabase.from('agents').select('id').eq('token', token).single();
+    if (data) await updateAgent(data.id, { availability: req.body.availability });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// שכחתי סיסמה
+app.post('/api/agents/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const agent = await getAgentByEmail(email);
+    if (!agent) return res.json({ success: true, message: 'אם האימייל קיים, נשלח מייל' });
+    
+    const resetToken = generateToken();
+    const resetExpiry = new Date(Date.now() + 3600000).toISOString(); // שעה
+    await updateAgent(agent.id, { reset_token: resetToken, reset_expiry: resetExpiry });
+    
+    const resetLink = `${BASE_URL}/reset-password?token=${resetToken}`;
+    await sendEmail(email, 'איפוס סיסמה — תרבותו AI', `
+      <div dir="rtl" style="font-family:Arial;padding:20px">
+        <h2>איפוס סיסמה</h2>
+        <p>שלום ${agent.name},</p>
+        <p>לחץ על הקישור הבא לאיפוס הסיסמה (תקף לשעה):</p>
+        <a href="${resetLink}" style="background:#1a6fa8;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px">איפוס סיסמה</a>
+        <p style="margin-top:16px;font-size:12px;color:#888">אם לא ביקשת איפוס סיסמה, התעלם מהמייל הזה.</p>
+      </div>
+    `);
+    
+    res.json({ success: true, message: 'נשלח מייל לאיפוס סיסמה' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// איפוס סיסמה
+app.post('/api/agents/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    const { data } = await supabase.from('agents').select('*').eq('reset_token', token).single();
+    if (!data) return res.status(400).json({ error: 'קישור לא תקין' });
+    if (new Date(data.reset_expiry) < new Date()) return res.status(400).json({ error: 'הקישור פג תוקף' });
+    
+    const hashed = hashPassword(password);
+    await updateAgent(data.id, { password: hashed, reset_token: null, reset_expiry: null });
+    
+    res.json({ success: true, message: 'הסיסמה עודכנה בהצלחה' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// דף איפוס סיסמה
+app.get('/reset-password', (req, res) => {
+  const token = req.query.token;
+  res.send(`<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head><meta charset="UTF-8"><title>איפוס סיסמה</title>
+<style>body{font-family:Arial;background:#e8f4fd;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#fff;padding:2rem;border-radius:12px;width:350px;box-shadow:0 4px 20px rgba(0,0,0,.1)}
+h2{color:#0e4e7a;margin-bottom:1rem}
+input{width:100%;padding:10px;border:1.5px solid #dee2e6;border-radius:8px;font-size:14px;margin-bottom:12px;box-sizing:border-box}
+button{width:100%;padding:12px;background:#1a6fa8;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer}
+.msg{padding:10px;border-radius:8px;text-align:center;margin-top:10px;display:none}
+.ok{background:#e8f8ef;color:#1a5e35}.err{background:#fdecea;color:#a01010}</style>
+</head>
+<body>
+<div class="card">
+  <h2>איפוס סיסמה</h2>
+  <input type="password" id="pass" placeholder="סיסמה חדשה">
+  <input type="password" id="pass2" placeholder="אימות סיסמה">
+  <button onclick="reset()">אפס סיסמה</button>
+  <div class="msg" id="msg"></div>
+</div>
+<script>
+async function reset() {
+  const p = document.getElementById('pass').value;
+  const p2 = document.getElementById('pass2').value;
+  const msg = document.getElementById('msg');
+  if (!p || p.length < 6) { showMsg('סיסמה חייבת להיות לפחות 6 תווים', 'err'); return; }
+  if (p !== p2) { showMsg('הסיסמאות לא תואמות', 'err'); return; }
+  const r = await fetch('/api/agents/reset-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token:'${token}', password: p}) });
+  const d = await r.json();
+  if (d.success) { showMsg('הסיסמה עודכנה! מועבר להתחברות...', 'ok'); setTimeout(() => window.location='/admin', 2000); }
+  else showMsg(d.error, 'err');
+}
+function showMsg(t,c){const m=document.getElementById('msg');m.textContent=t;m.className='msg '+c;m.style.display='block';}
+</script>
+</body></html>`);
+});
+
+// ── Agents CRUD ───────────────────────────────────────────
 
 app.get('/api/agents', async (req, res) => {
-  try { res.json(await getAllAgents()); } catch (err) { res.json([ADMIN_AGENT]); }
+  try { res.json(await getAllAgents()); } catch (err) { res.json([]); }
 });
 
 app.post('/api/agents/:id/approve', async (req, res) => {
   try {
-    const status = req.body.action === 'approve' ? 'approved' : 'rejected';
-    await updateAgent(req.params.id, { status });
+    const action = req.body.action;
+    const agent = await getAgentById(req.params.id);
+    if (!agent) return res.status(404).json({ error: 'לא נמצא' });
+    
+    if (action === 'approve') {
+      await updateAgent(req.params.id, { status: 'approved' });
+      // שלח מייל אישור לנציג
+      await sendEmail(agent.email, 'הבקשה אושרה — תרבותו AI', `
+        <div dir="rtl" style="font-family:Arial;padding:20px">
+          <h2>ברוך הבא, ${agent.name}!</h2>
+          <p>הבקשה שלך אושרה. כעת תוכל להתחבר למערכת.</p>
+          <a href="${BASE_URL}/admin" style="background:#1a6fa8;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px">כנס למערכת</a>
+        </div>
+      `);
+    } else {
+      await updateAgent(req.params.id, { status: 'rejected' });
+    }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/agents/:id', async (req, res) => {
-  try { await deleteAgent(req.params.id); res.json({ success: true }); }
+  try { await deleteAgentById(req.params.id); res.json({ success: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -240,15 +393,9 @@ app.get('/api/wa-conversations', async (req, res) => {
   try {
     const convs = await getAllConversations();
     res.json(convs.map(c => ({
-      phone: c.phone,
-      name: c.phone,
-      lastMessage: c.last_message || '',
-      status: c.status || 'new',
-      updatedAt: c.updated_at,
-      channel: c.channel || 'green',
-      tags: c.tags || [],
-      messages: c.messages || [],
-      isMyConv: false,
+      phone: c.phone, name: c.phone, lastMessage: c.last_message || '',
+      status: c.status || 'new', updatedAt: c.updated_at,
+      channel: c.channel || 'green', tags: c.tags || [], messages: c.messages || [], isMyConv: false,
     })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -266,28 +413,30 @@ app.post('/api/wa-conversations/:phone/send', async (req, res) => {
     const phone = decodeURIComponent(req.params.phone);
     const { message } = req.body;
     const conv = await getConversation(phone);
-    // שלח דרך הערוץ הנכון
+    
+    // מצא שם נציג
+    const token = req.headers['x-auth-token'];
+    let agentName = 'נציג';
+    if (token) {
+      const { data } = await supabase.from('agents').select('name').eq('token', token).single();
+      if (data) agentName = data.name;
+    }
+    
     if (conv?.channel === 'twilio') {
-      await twilioClient.messages.create({
-        from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`,
-        to: `whatsapp:${phone}`,
-        body: message,
-      });
+      await twilioClient.messages.create({ from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`, to: `whatsapp:${phone}`, body: message });
     } else {
       await sendGreenAPI(`${phone}@c.us`, message);
     }
     const msgs = conv?.messages || [];
-    msgs.push({ role: 'agent', content: message, time: new Date().toISOString(), channel: conv?.channel || 'green', agentName: 'יניב' });
+    msgs.push({ role: 'agent', content: message, time: new Date().toISOString(), channel: conv?.channel || 'green', agentName });
     await upsertConversation(phone, { messages: msgs, last_reply: message });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/wa-conversations/:phone/status', async (req, res) => {
-  try {
-    await upsertConversation(decodeURIComponent(req.params.phone), { status: req.body.status });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { await upsertConversation(decodeURIComponent(req.params.phone), { status: req.body.status }); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/wa-conversations/:phone/note', async (req, res) => {
@@ -313,26 +462,20 @@ app.post('/api/wa-conversations/:phone/tag', async (req, res) => {
 });
 
 app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
-  try {
-    await upsertConversation(decodeURIComponent(req.params.phone), { assigned_agent: req.body.agentId });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { await upsertConversation(decodeURIComponent(req.params.phone), { assigned_agent: req.body.agentId }); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/wa-conversations/:phone/transfer', (req, res) => { res.json({ success: true }); });
 
 app.delete('/api/wa-conversations/delete-all', async (req, res) => {
-  try {
-    await supabase.from('conversations').delete().neq('phone', '');
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { await supabase.from('conversations').delete().neq('phone', ''); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/wa-conversations/:phone', async (req, res) => {
-  try {
-    await supabase.from('conversations').delete().eq('phone', decodeURIComponent(req.params.phone));
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { await supabase.from('conversations').delete().eq('phone', decodeURIComponent(req.params.phone)); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/wa-conversations', async (req, res) => {
@@ -343,38 +486,30 @@ app.delete('/api/wa-conversations', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Bot Conversations ─────────────────────────────────────
+// ── Bot / Conversations ───────────────────────────────────
 
 app.get('/api/conversations', async (req, res) => {
   try { res.json(await getAllConversations()); } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/conversations/:phone', async (req, res) => {
-  try {
-    const conv = await getConversation(req.params.phone);
-    res.json(conv || { phone: req.params.phone, messages: [], history: [] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { const conv = await getConversation(req.params.phone); res.json(conv || { phone: req.params.phone, messages: [], history: [] }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/conversations/:phone', async (req, res) => {
-  try {
-    await supabase.from('conversations').delete().eq('phone', req.params.phone);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { await supabase.from('conversations').delete().eq('phone', req.params.phone); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/conversations/:id/takeover', async (req, res) => {
-  try {
-    await upsertConversation(req.params.id, { agentMode: true, agentName: req.body.agentName });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { await upsertConversation(req.params.id, { agentMode: true, agentName: req.body.agentName }); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/conversations/:id/release', async (req, res) => {
-  try {
-    await upsertConversation(req.params.id, { agentMode: false });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { await upsertConversation(req.params.id, { agentMode: false }); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/conversations/:id/agent-message', async (req, res) => {
@@ -387,7 +522,15 @@ app.post('/api/conversations/:id/agent-message', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── KB / Reports ──────────────────────────────────────────
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { phone, message, systemPrompt } = req.body;
+    const reply = await getAIResponse(phone || 'web-' + Date.now(), message, systemPrompt);
+    res.json({ reply });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── KB / Reports / Status ─────────────────────────────────
 
 app.post('/api/kb-update', (req, res) => { res.json({ success: true }); });
 app.post('/api/scan-now', (req, res) => { res.json({ success: true }); });
@@ -399,11 +542,7 @@ app.get('/api/reports', async (req, res) => {
     const convs = await getAllConversations();
     const byStatus = { new: 0, open: 0, resolved: 0 };
     const byChannel = { green: 0, twilio: 0 };
-    convs.forEach(c => {
-      const s = c.status || 'new';
-      byStatus[s] = (byStatus[s] || 0) + 1;
-      if (c.channel === 'twilio') byChannel.twilio++; else byChannel.green++;
-    });
+    convs.forEach(c => { const s = c.status || 'new'; byStatus[s] = (byStatus[s] || 0) + 1; if (c.channel === 'twilio') byChannel.twilio++; else byChannel.green++; });
     res.json({ total: convs.length, byStatus, byChannel, agentStats: [] });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -411,11 +550,8 @@ app.get('/api/reports', async (req, res) => {
 app.post('/api/send', async (req, res) => {
   try {
     const { phone, message, channel } = req.body;
-    if (channel === 'whatsapp-twilio') {
-      await twilioClient.messages.create({ from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`, to: `whatsapp:${phone}`, body: message });
-    } else {
-      await sendGreenAPI(`${phone}@c.us`, message);
-    }
+    if (channel === 'whatsapp-twilio') { await twilioClient.messages.create({ from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`, to: `whatsapp:${phone}`, body: message }); }
+    else { await sendGreenAPI(`${phone}@c.us`, message); }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -426,11 +562,11 @@ app.get('/api/status', async (req, res) => {
 });
 
 app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, 'admin.html')); });
-app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat — WhatsApp → Admin (no AI). Bot → AI ✅' }); });
+app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
+// ── Start ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
-  console.log(`✅ WhatsApp (Green/Twilio) → Admin only`);
-  console.log(`✅ Bot → AI enabled`);
+  console.log(`✅ Auth system with Resend emails active`);
 });
