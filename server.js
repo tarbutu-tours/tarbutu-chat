@@ -33,7 +33,7 @@ const GREEN_API_BASE     = `https://api.green-api.com/waInstance${GREEN_API_INST
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL         = 'noreply@rimon-tours.co.il';
 const PIPEDRIVE_TOKEN    = process.env.PIPEDRIVE_TOKEN || 'e30e3a85a358ecf8918b588d8af2fc31de1672dd';
-const PIPEDRIVE_STAGE_ID = 5398919; // ליד טרום שיחה
+const PIPEDRIVE_STAGE_ID = 1; // ליד טרום שיחה
 const BASE_URL           = 'https://tarbutu-chat-production.up.railway.app';
 
 // ── Password helpers ──────────────────────────────────────
