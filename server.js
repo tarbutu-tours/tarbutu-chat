@@ -271,6 +271,19 @@ app.post('/webhook/whatsapp', async (req, res) => {
 // ── REST API ──────────────────────────────────────────────
 
 // Auth
+app.post('/api/agents/login', (req, res) => {
+  const { email, password } = req.body;
+  if (email === 'yanivd@rimon-tours.co.il' && password === 'tarbutu2024') {
+    res.json({ success: true, token: 'admin-token-tarbutu' });
+  } else {
+    res.status(401).json({ error: 'פרטי התחברות שגויים' });
+  }
+});
+
+app.post('/api/agents/register', (req, res) => {
+  res.status(403).json({ error: 'הרשמה לא מאושרת' });
+});
+
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
   if (email === 'yanivd@rimon-tours.co.il' && password === 'tarbutu2024') {
