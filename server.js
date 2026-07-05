@@ -609,7 +609,9 @@ app.delete('/api/agents/:id', async (req, res) => {
 app.get('/api/wa-conversations', async (req, res) => {
   try {
     const convs = await getAllConversations();
-    res.json(convs.map(c => ({
+    // Only WhatsApp conversations (phone numbers, not bot sessions)
+    const waConvs = convs.filter(c => c.phone && !c.phone.startsWith('tc_'));
+    res.json(waConvs.map(c => ({
       phone: c.phone, name: c.phone, lastMessage: c.last_message || '',
       status: c.status || 'new', updatedAt: c.updated_at,
       channel: c.channel || 'green', tags: c.tags || [], messages: c.messages || [], isMyConv: false,
@@ -706,7 +708,17 @@ app.delete('/api/wa-conversations', async (req, res) => {
 // ── Bot / Conversations ───────────────────────────────────
 
 app.get('/api/conversations', async (req, res) => {
-  try { res.json(await getAllConversations()); } catch (err) { res.status(500).json({ error: err.message }); }
+  try { 
+    const convs = await getAllConversations();
+    // Only bot conversations (tc_ sessions)
+    const botConvs = convs.filter(c => c.phone && c.phone.startsWith('tc_'));
+    res.json(botConvs.map(c => ({
+      ...c,
+      id: c.phone,
+      lastMessage: c.last_message || '',
+      updatedAt: c.updated_at,
+    })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/conversations/:phone', async (req, res) => {
