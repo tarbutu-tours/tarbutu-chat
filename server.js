@@ -35,6 +35,8 @@ const FROM_EMAIL         = 'noreply@rimon-tours.co.il';
 const PIPEDRIVE_TOKEN    = process.env.PIPEDRIVE_TOKEN || 'e30e3a85a358ecf8918b588d8af2fc31de1672dd';
 const PIPEDRIVE_STAGE_ID = 1; // ליד טרום שיחה
 const BASE_URL           = 'https://tarbutu-chat-production.up.railway.app';
+const MONDAY_TOKEN       = process.env.MONDAY_TOKEN || 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjU5MzczOTM4NCwiYWFpIjoxMSwidWlkIjo5MzgyNjY2NiwiaWFkIjoiMjAyNS0xMi0wNFQwNzozMzo0OS4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MzIwNTc1NDEsInJnbiI6ImV1YzEifQ.KCw6QItc0geq0SeIhVvHJ8sJ3JprATzmlX-ANuUSe_E';
+const MONDAY_BOARD_ID    = '5054953529'; // שירות לקוחות
 
 // ── Password helpers ──────────────────────────────────────
 
@@ -100,6 +102,33 @@ async function createPipedriveLead(name, phone, summary) {
     console.log(`[Pipedrive] Lead created for ${name} ${phone}`);
   } catch (err) {
     console.error('[Pipedrive] Error:', err.response?.data || err.message);
+  }
+}
+
+// ── Monday.com ───────────────────────────────────────────
+
+async function createMondayItem(name, phone, description) {
+  try {
+    const query = `
+      mutation {
+        create_item(
+          board_id: ${MONDAY_BOARD_ID},
+          item_name: "${name.replace(/"/g, '')}",
+          column_values: "{\"phone\": \"${phone}\", \"text\": \"${description.replace(/"/g, '').replace(/
+/g, ' ').slice(0, 200)}\"}"
+        ) {
+          id
+        }
+      }
+    `;
+    
+    await axios.post('https://api.monday.com/v2', 
+      { query },
+      { headers: { 'Authorization': MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    console.log(`[Monday] Item created for ${name}`);
+  } catch (err) {
+    console.error('[Monday] Error:', err.response?.data || err.message);
   }
 }
 
@@ -341,17 +370,27 @@ ${kbShort}`;
   await upsertConversation(phone, { messages: finalHistory, last_message: userMessage, last_reply: aiMessage });
   
   // Detect if user left contact details
-  const phonePattern = /0[5-9]\d{8}|05\d[-\s]?\d{7}/;
-  const hasPhone = phonePattern.test(userMessage);
+  const phonePattern = /0[5-9][0-9]{8}/;
+  const hasPhone = phonePattern.test(userMessage.replace(/[-\s]/g, ''));
   if (hasPhone && updatedHistory.length > 2) {
-    // Extract name from conversation
     const allText = updatedHistory.map(m => m.content).join(' ');
     const nameMatch = allText.match(/שמ[יי]\s+([א-ת]+(?:\s+[א-ת]+)?)/);
     const detectedName = nameMatch ? nameMatch[1] : 'לקוח מהבוט';
-    const detectedPhone = userMessage.match(phonePattern)?.[0] || userMessage;
-    const summary = `פנייה מבוט תרבותו
-${allText.slice(0, 300)}`;
-    createPipedriveLead(detectedName, detectedPhone, summary).catch(console.error);
+    const detectedPhone = userMessage.replace(/[-\s]/g, '').match(phonePattern)?.[0] || userMessage;
+    const summary = allText.slice(0, 300);
+    
+    // Check if this is a service inquiry (support) or sales
+    const isService = allText.includes('שירות') || allText.includes('בעיה') || 
+                      allText.includes('ביטול') || allText.includes('שאלה') ||
+                      allText.includes('הזמנה') || allText.includes('מסמך');
+    
+    if (isService) {
+      // Service → Monday.com
+      createMondayItem(detectedName, detectedPhone, summary).catch(console.error);
+    } else {
+      // Sales → Pipedrive
+      createPipedriveLead(detectedName, detectedPhone, summary).catch(console.error);
+    }
   }
   
   return aiMessage;
@@ -878,3 +917,4 @@ app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
 });
+
