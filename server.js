@@ -386,12 +386,31 @@ app.post('/webhook/whatsapp', async (req, res) => {
     const text = req.body.Body;
     if (!from || !text) return res.sendStatus(200);
     console.log(`[Twilio] ${from}: ${text}`);
+
+    // שמור שיחה
     const existing = await getConversation(from);
     const msgs = existing?.messages || [];
     msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'twilio' });
-    await upsertConversation(from, { messages: msgs, last_message: text, status: existing?.status || 'new', channel: 'twilio' });
-    res.sendStatus(200);
+    
+    // שלח הודעת הפניה אוטומטית ל-Green API
+    const redirectMsg = 'שלום! 👋 לשירות מהיר ומלא, אנא שלח הודעה למספר הוואטסאפ שלנו: +972523661744\nנשמח לעזור!';
+    
+    // שמור כטופל אוטומטית
+    await upsertConversation(from, { 
+      messages: msgs, 
+      last_message: text, 
+      status: 'resolved', 
+      channel: 'twilio' 
+    });
+
+    // שלח תשובה אוטומטית דרך Twilio
+    const MessagingResponse = require('twilio').twiml.MessagingResponse;
+    const twiml = new MessagingResponse();
+    twiml.message(redirectMsg);
+    res.type('text/xml');
+    res.send(twiml.toString());
   } catch (err) {
+    console.error('Twilio webhook error:', err.message);
     res.sendStatus(500);
   }
 });
@@ -697,7 +716,17 @@ app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/wa-conversations/:phone/transfer', (req, res) => { res.json({ success: true }); });
+app.post('/api/wa-conversations/:phone/transfer', async (req, res) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone);
+    // When transferring, mark as new so receiving agent sees it
+    await upsertConversation(phone, { 
+      assigned_agent: req.body.agentId,
+      status: 'new'
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 app.delete('/api/wa-conversations/delete-all', async (req, res) => {
   try { await supabase.from('conversations').delete().neq('phone', ''); res.json({ success: true }); }
