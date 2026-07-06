@@ -457,6 +457,10 @@ app.get('/api/agents/me', async (req, res) => {
   try {
     const token = req.headers['x-auth-token'];
     if (!token) return res.status(401).json({ error: 'לא מחובר' });
+    // Accept admin token always
+    if (token === 'admin-token-tarbutu') {
+      return res.json(ADMIN_AGENT);
+    }
     const { data } = await supabase.from('agents').select('*').eq('token', token).single();
     if (!data) return res.status(401).json({ error: 'לא מחובר' });
     res.json({ id: data.id, name: data.name, email: data.email, role: data.role, availability: data.availability });
