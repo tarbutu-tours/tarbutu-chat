@@ -902,6 +902,18 @@ app.get('/api/status', async (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname)));
+app.get('/api/monday-columns', async (req, res) => {
+  try {
+    const r = await axios.post('https://api.monday.com/v2',
+      { query: '{ boards(ids: [5054953529]) { columns { id title type } } }' },
+      { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    res.json(r.data.data.boards[0].columns);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, 'admin.html')); });
 app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
