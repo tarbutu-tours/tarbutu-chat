@@ -109,18 +109,19 @@ async function createPipedriveLead(name, phone, summary) {
 
 async function createMondayItem(name, phone, description) {
   try {
-    const cleanName = (name || 'לקוח').substring(0, 50);
-    const cleanDesc = (description || '').substring(0, 200);
-    const colValues = JSON.stringify({
-      phone: { phone: phone, countryShortName: 'IL' },
-      text: cleanDesc
-    });
-    const query = `mutation { create_item(board_id: ${MONDAY_BOARD_ID}, item_name: "${cleanName}", column_values: ${JSON.stringify(colValues)}) { id } }`;
+    const cleanName = (name || 'לקוח מהבוט').substring(0, 50);
+    const colValues = {
+      'phone_mkw59e3v': { phone: phone, countryShortName: 'IL' },
+      'long_text_mkw5q0e2': { text: (description || '').substring(0, 500) },
+      'text_mkzmby8z': 'בוט',
+      'color_mkw5dvjb': { label: 'חדשה' },
+    };
+    const query = `mutation { create_item(board_id: ${MONDAY_BOARD_ID}, item_name: "${cleanName}", column_values: ${JSON.stringify(JSON.stringify(colValues))}) { id } }`;
     await axios.post('https://api.monday.com/v2',
       { query },
       { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
     );
-    console.log('[Monday] Item created for', name);
+    console.log('[Monday] Item created for', name, phone);
   } catch (err) {
     console.error('[Monday] Error:', err.response?.data || err.message);
   }
@@ -320,28 +321,30 @@ async function getAIResponse(phone, userMessage, systemPrompt) {
   // Get knowledge base (max 2000 chars to avoid token limit)
   const kb = await getKnowledge();
   const kbShort = kb.slice(0, 2000);
-  const system = systemPrompt || `אתה עוזר חכם של תרבותו — חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים. שמך "עוזר תרבותו".
+  const system = systemPrompt || `אתה עוזר של תרבותו — חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים. שמך "עוזר תרבותו".
 
 ## אישיות:
 - חם, נלהב, מקצועי
-- ענה בעברית, קצר וממוקד
-- אל תכתוב יותר מ-4 משפטים בתשובה
-- אל תמציא מידע — אם אין לך תשובה, הפנה לנציג
+- ענה בעברית, קצר וממוקד — לא יותר מ-3 משפטים
+- שאלה אחת בכל פעם!
+- אל תמציא מידע
 
-## מצב מכירות — המטרה: להשאיר ליד!
-שלב 1 — הבן מה הלקוח רוצה: יעד? תאריך? מספר נוסעים?
-שלב 2 — הצג טיול רלוונטי מהמאגר בצורה מושכת
-שלב 3 — צור עניין: "מקומות מוגבלים", "עונה מבוקשת"
-שלב 4 — בקש ליד: "כדי לשלוח לך הצעת מחיר מותאמת, תשאיר שם ומספר טלפון ונציג יחזור אליך תוך שעה"
-לגבי מחיר — אמור: "המחיר תלוי בתאריך וסוג הקבין, נציג יכין לך הצעה אישית"
+## מכירות 🚢:
+- ענה על שאלות הלקוח, הצג טיולים רלוונטיים מהמאגר
+- לגבי מחיר — אמור: "המחיר תלוי בתאריך וסוג הקבין, נציג יכין לך הצעה אישית"
+- כשהלקוח מעוניין ורוצה להמשיך — אסוף פרטים בסדר הזה, שאלה אחת בכל פעם:
+  1. "מה שמך המלא (שם + שם משפחה)?"
+  2. "מה מספר הטלפון שלך?"
+  3. "באיזה טיול ספציפי אתה מעוניין וכמה נוסעים?"
+  4. "תודה [שם]! נציג יחזור אליך תוך שעה עם הצעת מחיר מותאמת 😊"
 
-## מצב שירות — המטרה: לפתור בלי נציג!
-שאלות נפוצות שאתה יודע לענות עליהן:
-- ביטול: "ניתן לבטל עד X ימים לפני היציאה בהתאם לתנאי הרכישה. מה תאריך הטיול שלך?"
-- דרכון/ויזה: "נדרש דרכון בתוקף ל-6 חודשים מעבר לתאריך החזרה. ויזה תלויה ביעד"
-- מסמכים: "המסמכים נשלחים 2-3 שבועות לפני היציאה לאימייל שנרשם"
-- ביטוח: "אנחנו ממליצים על ביטוח נסיעות מקיף. רוצה שנציג יצור קשר?"
-אם השאלה מורכבת — אמור: "שאלה חשובה! נציג מומחה יחזור אליך תוך שעה — מה שמך וטלפונך?"
+## שירות לקוחות 🎧:
+- נסה לפתור את הבעיה בעצמך (ביטול/דרכון/מסמכים/ביטוח)
+- אם השאלה מורכבת ודורשת נציג — אסוף פרטים בסדר הזה, שאלה אחת בכל פעם:
+  1. "מה שמך המלא?"
+  2. "מה מספר הטלפון שלך?"
+  3. "תאר בקצרה את נושא הפנייה"
+  4. "תודה [שם]! נציג מומחה יחזור אליך תוך שעה 🙏"
 
 ## טיולים זמינים:
 ${kbShort}`;
@@ -364,25 +367,37 @@ ${kbShort}`;
   await upsertConversation(phone, { messages: finalHistory, last_message: userMessage, last_reply: aiMessage });
   
   // Detect if user left contact details
-  const phonePattern = /0[5-9][0-9]{8}/;
-  const hasPhone = phonePattern.test(userMessage.replace(/[-\s]/g, ''));
-  if (hasPhone && updatedHistory.length > 2) {
-    const allText = updatedHistory.map(m => m.content).join(' ');
-    const nameMatch = allText.match(/שמ[יי]\s+([א-ת]+(?:\s+[א-ת]+)?)/);
-    const detectedName = nameMatch ? nameMatch[1] : 'לקוח מהבוט';
-    const detectedPhone = userMessage.replace(/[-\s]/g, '').match(phonePattern)?.[0] || userMessage;
-    const summary = allText.slice(0, 300);
+  const cleanMsg = userMessage.replace(/[-\s]/g, '');
+  const phonePattern = /05[0-9]{8}/;
+  const hasPhone = phonePattern.test(cleanMsg);
+  if (hasPhone) {
+    const allText = updatedHistory.map(m => m.role === 'user' ? m.content : '').join(' ');
+    const detectedPhone = cleanMsg.match(phonePattern)?.[0] || '';
+    
+    // Try to extract name - various patterns
+    let detectedName = 'לקוח מהבוט';
+    const namePatterns = [
+      /שמ[יי]\s+([א-ת]+(?:\s+[א-ת]+)?)/,
+      /([א-ת]{2,}\s+[א-ת]{2,})\s+05/,
+      /^([א-ת]{2,}(?:\s+[א-ת]{2,})?)\s+05/m,
+    ];
+    for (const pattern of namePatterns) {
+      const match = allText.match(pattern);
+      if (match) { detectedName = match[1]; break; }
+    }
+    
+    const summary = updatedHistory.map(m => (m.role === 'user' ? 'לקוח: ' : 'בוט: ') + m.content).join(' | ').slice(0, 500);
     
     // Check if this is a service inquiry (support) or sales
-    const isService = allText.includes('שירות') || allText.includes('בעיה') || 
-                      allText.includes('ביטול') || allText.includes('שאלה') ||
-                      allText.includes('הזמנה') || allText.includes('מסמך');
+    const allTextFull = updatedHistory.map(m => m.content).join(' ');
+    const isService = allTextFull.includes('שירות') || allTextFull.includes('בעיה') || 
+                      allTextFull.includes('ביטול') || allTextFull.includes('שאלה') ||
+                      allTextFull.includes('הזמנה') || allTextFull.includes('מסמך') ||
+                      phone.includes('tc_') === false && allTextFull.includes('🎧');
     
     if (isService) {
-      // Service → Monday.com
       createMondayItem(detectedName, detectedPhone, summary).catch(console.error);
     } else {
-      // Sales → Pipedrive
       createPipedriveLead(detectedName, detectedPhone, summary).catch(console.error);
     }
   }
