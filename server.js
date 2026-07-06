@@ -109,24 +109,18 @@ async function createPipedriveLead(name, phone, summary) {
 
 async function createMondayItem(name, phone, description) {
   try {
-    const query = `
-      mutation {
-        create_item(
-          board_id: ${MONDAY_BOARD_ID},
-          item_name: "${name.replace(/"/g, '')}",
-          column_values: "{\"phone\": \"${phone}\", \"text\": \"${description.replace(/"/g, '').replace(/
-/g, ' ').slice(0, 200)}\"}"
-        ) {
-          id
-        }
-      }
-    `;
-    
-    await axios.post('https://api.monday.com/v2', 
+    const cleanName = (name || 'לקוח').substring(0, 50);
+    const cleanDesc = (description || '').substring(0, 200);
+    const colValues = JSON.stringify({
+      phone: { phone: phone, countryShortName: 'IL' },
+      text: cleanDesc
+    });
+    const query = `mutation { create_item(board_id: ${MONDAY_BOARD_ID}, item_name: "${cleanName}", column_values: ${JSON.stringify(colValues)}) { id } }`;
+    await axios.post('https://api.monday.com/v2',
       { query },
-      { headers: { 'Authorization': MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+      { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
     );
-    console.log(`[Monday] Item created for ${name}`);
+    console.log('[Monday] Item created for', name);
   } catch (err) {
     console.error('[Monday] Error:', err.response?.data || err.message);
   }
@@ -917,4 +911,3 @@ app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
 });
-
