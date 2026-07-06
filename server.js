@@ -641,9 +641,13 @@ app.post('/api/wa-conversations/:phone/send', async (req, res) => {
     // מצא שם נציג
     const token = req.headers['x-auth-token'];
     let agentName = 'נציג';
-    if (token) {
-      const { data } = await supabase.from('agents').select('name').eq('token', token).single();
-      if (data) agentName = data.name;
+    if (token === 'admin-token-tarbutu') {
+      agentName = 'מחלקת אופרציה';
+    } else if (token) {
+      try {
+        const { data } = await supabase.from('agents').select('name').eq('token', token).single();
+        if (data) agentName = data.name;
+      } catch(e) {}
     }
     
     if (conv?.channel === 'twilio') {
