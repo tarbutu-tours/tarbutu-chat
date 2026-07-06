@@ -659,7 +659,10 @@ app.post('/api/wa-conversations/:phone/send', async (req, res) => {
     msgs.push({ role: 'agent', content: message, time: new Date().toISOString(), channel: conv?.channel || 'green', agentName });
     await upsertConversation(phone, { messages: msgs, last_reply: message });
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error('[Send Error]', err.message, err.stack);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.post('/api/wa-conversations/:phone/status', async (req, res) => {
