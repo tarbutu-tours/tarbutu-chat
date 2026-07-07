@@ -950,6 +950,38 @@ app.get('/api/monday-columns', async (req, res) => {
   }
 });
 
+// ── Missed Call Webhook (Aircall + Make) ─────────────────
+
+app.post('/webhook/missed-call', async (req, res) => {
+  res.sendStatus(200);
+  try {
+    const phone = req.body.phone || req.body.number || req.body.caller_number;
+    if (!phone) return;
+    
+    // Clean phone number
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const waPhone = cleanPhone.startsWith('972') ? cleanPhone : '972' + cleanPhone.replace(/^0/, '');
+    
+    console.log(`[Missed Call] Sending WhatsApp to ${waPhone}`);
+    
+    const message = `שלום! 👋 התקשרת אלינו לתרבותו ולא הצלחנו לענות.
+נחזור אליך בהקדם האפשרי 🙏
+בינתיים, אם תרצה — שלח לנו הודעה כאן ונטפל בך מיד!`;
+
+    await sendGreenAPI(`${waPhone}@c.us`, message);
+    
+    // Save to admin
+    const existing = await getConversation(waPhone);
+    const msgs = existing?.messages || [];
+    msgs.push({ role: 'agent', content: '📞 שיחה שלא נענתה — נשלחה הודעת WhatsApp', time: new Date().toISOString(), channel: 'green' });
+    await upsertConversation(waPhone, { messages: msgs, last_message: 'שיחה שלא נענתה', status: 'new', channel: 'green' });
+    
+    console.log(`[Missed Call] Done for ${waPhone}`);
+  } catch (err) {
+    console.error('[Missed Call] Error:', err.message);
+  }
+});
+
 app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, 'admin.html')); });
 app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
