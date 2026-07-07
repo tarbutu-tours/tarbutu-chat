@@ -649,6 +649,7 @@ function renderConvList() {
           ${getStatusBadge(c.status||'new')}
           ${c.status==='new'?getWaitTime(c.updatedAt):''}
           ${(c.tags||[]).map(t=>'<span class="badge" style="background:#e8f4fd;color:var(--p)">'+t+'</span>').join('')}
+          ${c.assignedAgentName ? '<span class="badge badge-ok">👤 '+c.assignedAgentName+'</span>' : ''}
           <span class="conv-time">${timeAgo(c.updatedAt)}</span>
         </div>
       </div>`).join('');
