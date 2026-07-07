@@ -329,22 +329,22 @@ async function getAIResponse(phone, userMessage, systemPrompt) {
 - שאלה אחת בכל פעם!
 - אל תמציא מידע
 
-## מכירות 🚢:
-- ענה על שאלות הלקוח, הצג טיולים רלוונטיים מהמאגר
-- לגבי מחיר — אמור: "המחיר תלוי בתאריך וסוג הקבין, נציג יכין לך הצעה אישית"
-- כשהלקוח מעוניין ורוצה להמשיך — אסוף פרטים בסדר הזה, שאלה אחת בכל פעם:
-  1. "מה שמך המלא (שם + שם משפחה)?"
-  2. "מה מספר הטלפון שלך?"
-  3. "באיזה טיול ספציפי אתה מעוניין וכמה נוסעים?"
-  4. "תודה [שם]! נציג יחזור אליך תוך שעה עם הצעת מחיר מותאמת 😊"
+## זרימת שיחה מכירות 🚢:
+1. שאל: "באיזה יעד או טיול אתה מעוניין?"
+2. הצג טיול רלוונטי מהמאגר
+3. שאל: "מה שמך המלא (שם + שם משפחה)?"
+4. שאל: "מה מספר הטלפון שלך?"
+5. שאל: "כמה נוסעים ומה התאריך המועדף?"
+6. סכם: "תודה [שם]! נציג יחזור אליך תוך שעה עם הצעת מחיר 😊"
+לגבי מחיר — אמור: "המחיר תלוי בתאריך וסוג הקבין, נציג יכין לך הצעה אישית"
 
-## שירות לקוחות 🎧:
-- נסה לפתור את הבעיה בעצמך (ביטול/דרכון/מסמכים/ביטוח)
-- אם השאלה מורכבת ודורשת נציג — אסוף פרטים בסדר הזה, שאלה אחת בכל פעם:
-  1. "מה שמך המלא?"
-  2. "מה מספר הטלפון שלך?"
-  3. "תאר בקצרה את נושא הפנייה"
-  4. "תודה [שם]! נציג מומחה יחזור אליך תוך שעה 🙏"
+## זרימת שיחה שירות לקוחות 🎧:
+1. שאל: "במה אוכל לעזור?"
+2. נסה לענות — ביטול/דרכון/מסמכים/ביטוח
+3. אם צריך נציג — שאל: "מה שמך המלא?"
+4. שאל: "מה מספר הטלפון שלך?"
+5. שאל: "תאר בקצרה את נושא הפנייה"
+6. סכם: "תודה [שם]! נציג מומחה יחזור אליך תוך שעה 🙏"
 
 ## טיולים זמינים:
 ${kbShort}`;
@@ -681,12 +681,25 @@ app.delete('/api/agents/:id', async (req, res) => {
 app.get('/api/wa-conversations', async (req, res) => {
   try {
     const convs = await getAllConversations();
-    // Only WhatsApp conversations (phone numbers, not bot sessions)
+    const token = req.headers['x-auth-token'];
+    let myId = null;
+    if (token === 'admin-token-tarbutu') {
+      myId = 'admin-1';
+    } else if (token) {
+      const { data } = await supabase.from('agents').select('id').eq('token', token).single();
+      if (data) myId = data.id;
+    }
     const waConvs = convs.filter(c => c.phone && !c.phone.startsWith('tc_'));
     res.json(waConvs.map(c => ({
-      phone: c.phone, name: c.contact_name || c.phone, lastMessage: c.last_message || '',
-      status: c.status || 'new', updatedAt: c.updated_at,
-      channel: c.channel || 'green', tags: c.tags || [], messages: c.messages || [], isMyConv: false,
+      phone: c.phone,
+      name: c.contact_name || c.phone,
+      lastMessage: c.last_message || '',
+      status: c.status || 'new',
+      updatedAt: c.updated_at,
+      channel: c.channel || 'green',
+      tags: c.tags || [],
+      messages: c.messages || [],
+      isMyConv: myId && c.assigned_agent === myId,
     })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
