@@ -723,7 +723,7 @@ function renderWaChat(conv) {
     <div class="chat-topbar">
       <i class="ti ti-brand-whatsapp" style="font-size:20px;color:var(--wa)"></i>
       <div>
-        <div style="font-weight:700;font-size:.9rem">${conv.name||conv.phone}</div>
+        <div style="font-weight:700;font-size:.9rem;display:flex;align-items:center;gap:6px">${conv.name||conv.phone}<button class="btn btn-sm btn-outline" style="padding:2px 6px;font-size:10px" onclick="renameContact('${conv.phone}')" title="שנה שם"><i class="ti ti-pencil"></i></button></div>
         <div style="font-size:11px;color:#6c757d">📱 ${conv.phone} · ${(conv.messages||[]).length} הודעות · ${conv.channel==='green'?'Green API':'Twilio'}</div>
       </div>
       <div class="tags-area" id="conv-tags-${pid}">${tags.map(t=>'<span class="tag">'+t+'<button onclick="removeTag(\''+conv.phone+'\',\''+t+'\')">×</button></span>').join('')}</div>
@@ -1170,6 +1170,17 @@ async function deleteBotConv(id) {
   activeConvId = null;
   document.getElementById('chat-area').innerHTML = '<div class="chat-empty"><i class="ti ti-message-dots"></i><span>בחר שיחה מהרשימה</span></div>';
   loadAllConversations();
+}
+
+async function renameContact(phone) {
+  var newName = prompt('הכנס שם חדש ללקוח:');
+  if (!newName || !newName.trim()) return;
+  try {
+    var r = await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/rename', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({name:newName.trim()}) });
+    var d = await r.json();
+    if (d.success) { showToast('שם עודכן ✅'); openWaConv(phone, true); loadAllConversations(); }
+    else showToast('שגיאה: '+(d.error||''));
+  } catch(e) { showToast('שגיאת חיבור'); }
 }
 
 checkAuth();
