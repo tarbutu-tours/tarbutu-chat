@@ -38,6 +38,13 @@ const BASE_URL           = 'https://tarbutu-chat-production.up.railway.app';
 const MONDAY_TOKEN       = process.env.MONDAY_TOKEN || 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjU5MzczOTM4NCwiYWFpIjoxMSwidWlkIjo5MzgyNjY2NiwiaWFkIjoiMjAyNS0xMi0wNFQwNzozMzo0OS4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MzIwNTc1NDEsInJnbiI6ImV1YzEifQ.KCw6QItc0geq0SeIhVvHJ8sJ3JprATzmlX-ANuUSe_E';
 const MONDAY_BOARD_ID    = '5054953529'; // שירות לקוחות
 
+// ── מיפוי נציגים: שם ב-Pipedrive → מזהה נציג ב-Supabase ──
+const AGENT_MAP = {
+  'AVI': 'agent-1783347049009',
+  'RACHEL': 'agent-1',
+  'MEIRAV': 'agent-1783346115877',
+};
+
 // ── Password helpers ──────────────────────────────────────
 
 function hashPassword(password) {
@@ -102,6 +109,54 @@ async function createPipedriveLead(name, phone, summary) {
     console.log(`[Pipedrive] Lead created for ${name} ${phone}`);
   } catch (err) {
     console.error('[Pipedrive] Error:', err.response?.data || err.message);
+  }
+}
+
+// חיפוש ב-Pipedrive לפי מספר טלפון — מחזיר גם את הנציג וגם את שם הלקוח
+async function findPipedriveInfo(waPhone) {
+  const result = { agentId: null, customerName: null };
+  try {
+    // נסה כמה וריאציות של המספר לחיפוש
+    const variants = [];
+    variants.push(waPhone); // 972...
+    if (waPhone.startsWith('972')) {
+      variants.push('0' + waPhone.slice(3)); // 05...
+      variants.push('+' + waPhone);          // +972...
+    }
+
+    let person = null;
+    for (const term of variants) {
+      const pdRes = await axios.get(
+        `https://api.pipedrive.com/v1/persons/search`,
+        { params: { term, fields: 'phone', api_token: PIPEDRIVE_TOKEN } }
+      );
+      person = pdRes.data.data?.items?.[0]?.item;
+      if (person) break;
+    }
+    if (!person) {
+      console.log('[Missed Call] No Pipedrive person found for', waPhone);
+      return result;
+    }
+
+    // שם הלקוח מ-Pipedrive
+    result.customerName = person.name || null;
+
+    // מצא את העסקה של אותו איש קשר וקח את הבעלים
+    const dealsRes = await axios.get(
+      `https://api.pipedrive.com/v1/persons/${person.id}/deals`,
+      { params: { api_token: PIPEDRIVE_TOKEN, status: 'all_not_deleted' } }
+    );
+    const deal = dealsRes.data.data?.[0];
+    const ownerName = (deal?.owner_name || person.owner?.name || '').toUpperCase();
+    console.log('[Missed Call] Pipedrive owner:', ownerName, '| customer:', result.customerName);
+
+    for (const [key, id] of Object.entries(AGENT_MAP)) {
+      if (ownerName.includes(key)) { result.agentId = id; break; }
+    }
+    return result;
+  } catch (err) {
+    console.error('[Missed Call] Pipedrive lookup error:', err.response?.data || err.message);
+    return result;
   }
 }
 
@@ -769,6 +824,17 @@ app.post('/api/wa-conversations/:phone/note', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// שינוי שם לקוח ידנית
+app.post('/api/wa-conversations/:phone/rename', async (req, res) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone);
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'נא להזין שם' });
+    await upsertConversation(phone, { contact_name: name.trim() });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/wa-conversations/:phone/tag', async (req, res) => {
   try {
     const phone = decodeURIComponent(req.params.phone);
@@ -963,6 +1029,9 @@ app.post('/webhook/missed-call', async (req, res) => {
     const waPhone = cleanPhone.startsWith('972') ? cleanPhone : '972' + cleanPhone.replace(/^0/, '');
     
     console.log(`[Missed Call] Sending WhatsApp to ${waPhone}`);
+
+    // חיפוש ב-Pipedrive — נציג מטפל + שם לקוח
+    const pdInfo = await findPipedriveInfo(waPhone);
     
     const message = `שלום! 👋 התקשרת אלינו לתרבותו ולא הצלחנו לענות.
 נחזור אליך בהקדם האפשרי 🙏
@@ -974,9 +1043,15 @@ app.post('/webhook/missed-call', async (req, res) => {
     const existing = await getConversation(waPhone);
     const msgs = existing?.messages || [];
     msgs.push({ role: 'agent', content: '📞 שיחה שלא נענתה — נשלחה הודעת WhatsApp', time: new Date().toISOString(), channel: 'green' });
-    await upsertConversation(waPhone, { messages: msgs, last_message: 'שיחה שלא נענתה', status: 'new', channel: 'green' });
+
+    const updates = { messages: msgs, last_message: 'שיחה שלא נענתה', status: 'new', channel: 'green' };
+    if (pdInfo.agentId) updates.assigned_agent = pdInfo.agentId;
+    // שמור שם לקוח מ-Pipedrive רק אם אין כבר שם
+    if (pdInfo.customerName && !existing?.contact_name) updates.contact_name = pdInfo.customerName;
+
+    await upsertConversation(waPhone, updates);
     
-    console.log(`[Missed Call] Done for ${waPhone}`);
+    console.log(`[Missed Call] Done for ${waPhone}, assigned to: ${pdInfo.agentId || 'none'}, name: ${pdInfo.customerName || 'unknown'}`);
   } catch (err) {
     console.error('[Missed Call] Error:', err.message);
   }
