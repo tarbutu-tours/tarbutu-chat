@@ -689,6 +689,13 @@ app.get('/api/wa-conversations', async (req, res) => {
       const { data } = await supabase.from('agents').select('id').eq('token', token).single();
       if (data) myId = data.id;
     }
+    
+    // Get all agents for name lookup
+    const agents = await getAllAgents().catch(() => []);
+    const agentMap = {};
+    agents.forEach(a => { agentMap[a.id] = a.name; });
+    agentMap['admin-1'] = 'מחלקת אופרציה';
+    
     const waConvs = convs.filter(c => c.phone && !c.phone.startsWith('tc_'));
     res.json(waConvs.map(c => ({
       phone: c.phone,
@@ -700,6 +707,7 @@ app.get('/api/wa-conversations', async (req, res) => {
       tags: c.tags || [],
       messages: c.messages || [],
       isMyConv: myId && c.assigned_agent === myId,
+      assignedAgentName: c.assigned_agent ? (agentMap[c.assigned_agent] || 'נציג') : null,
     })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
