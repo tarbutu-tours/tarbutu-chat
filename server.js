@@ -147,8 +147,16 @@ async function findPipedriveInfo(waPhone) {
       { params: { api_token: PIPEDRIVE_TOKEN, status: 'all_not_deleted' } }
     );
     const deal = dealsRes.data.data?.[0];
+    const dealStatus = deal?.status || '';
     const ownerName = (deal?.owner_name || person.owner?.name || '').toUpperCase();
-    console.log('[Missed Call] Pipedrive owner:', ownerName, '| customer:', result.customerName);
+    console.log('[Pipedrive] owner:', ownerName, '| customer:', result.customerName, '| deal status:', dealStatus);
+
+    // אם הדיל Won — שייך למירב (שירות לקוחות)
+    if (dealStatus === 'won') {
+      result.agentId = AGENT_MAP['MEIRAV'];
+      result.isWon = true;
+      return result;
+    }
 
     for (const [key, id] of Object.entries(AGENT_MAP)) {
       if (ownerName.includes(key)) { result.agentId = id; break; }
@@ -477,7 +485,18 @@ app.post('/webhook/greenapi', async (req, res) => {
     const existing = await getConversation(phone);
     const msgs = existing?.messages || [];
     msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
-    await upsertConversation(phone, { messages: msgs, last_message: text, status: existing?.status || 'new', channel: 'green', contact_name: senderName });
+    const updates = { messages: msgs, last_message: text, status: existing?.status || 'new', channel: 'green', contact_name: senderName };
+
+    // שיוך אוטומטי לנציג — רק בפנייה חדשה (אין שיחה קיימת או שהיא טופלה)
+    if (!existing || existing.status === 'resolved' || !existing.assigned_agent) {
+      try {
+        const pdInfo = await findPipedriveInfo(phone);
+        if (pdInfo.agentId) updates.assigned_agent = pdInfo.agentId;
+        if (pdInfo.customerName && !senderName) updates.contact_name = pdInfo.customerName;
+      } catch(e) { console.error('[Green Webhook] Pipedrive lookup error:', e.message); }
+    }
+
+    await upsertConversation(phone, updates);
   } catch (err) {
     console.error('Webhook error:', err.message);
   }
