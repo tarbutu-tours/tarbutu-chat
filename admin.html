@@ -728,7 +728,15 @@ function renderMessages(msgs) {
     var role = m.role;
     if (role === 'system') return '<div class="msg system"><div class="msg-bbl">'+m.content+'</div></div>';
     if (role === 'note') return '<div class="msg note"><div class="msg-bbl">📌 <strong>הערה פנימית</strong><br>'+(m.content||'')+'<br><span style="font-size:10px;color:#adb5bd">'+(m.agentName||'')+'</span></div></div>';
-    return '<div class="msg '+role+'">'+(role==='agent'?'<div class="msg-sender">'+(m.agentName||'נציג')+'</div>':'')+'<div class="msg-bbl">'+(m.content||'').replace(/\n/g,'<br>')+'</div><div class="msg-meta">'+(m.time?new Date(m.time).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):'')+' '+(m.channel==='green'?'📱':'📞')+'</div></div>';
+    var fileHtml = '';
+    if (m.fileUrl) {
+      var isImage = (m.fileType||'').includes('image') || (m.fileName||'').match(/\.(jpg|jpeg|png|gif|webp)$/i);
+      if (isImage) {
+        fileHtml = '<div style="margin:4px 0"><img src="'+m.fileUrl+'" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="window.open(\''+m.fileUrl+'\',\'_blank\')"></div>';
+      }
+      fileHtml += '<div style="margin:2px 0"><a href="'+m.fileUrl+'" download="'+(m.fileName||'file')+'" target="_blank" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+(role==='user'?'var(--p)':'#fff')+';text-decoration:none;background:'+(role==='user'?'#f0f4f8':'rgba(255,255,255,0.2)')+';padding:4px 8px;border-radius:6px"><i class="ti ti-download"></i> '+(m.fileName||'הורד קובץ')+'</a></div>';
+    }
+    return '<div class="msg '+role+'">'+(role==='agent'?'<div class="msg-sender">'+(m.agentName||'נציג')+'</div>':'')+'<div class="msg-bbl">'+fileHtml+(m.fileUrl&&!m.content?'':((m.content||'').replace(/\n/g,'<br>')))+'</div><div class="msg-meta">'+(m.time?new Date(m.time).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):'')+' '+(m.channel==='green'?'📱':'📞')+'</div></div>';
   }).join('');
 }
 
@@ -764,6 +772,7 @@ function renderWaChat(conv) {
       <button class="tpl-btn" onclick="showAddTemplate()" style="border-style:dashed">+ הוסף</button>
     </div>
     <div class="input-area">
+      <button class="btn btn-outline" onclick="sendFileToCustomer('${conv.phone}')" title="שלח קובץ" style="padding:8px"><i class="ti ti-paperclip"></i></button>
       <textarea id="wa-input" placeholder="כתוב הודעה..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendWaMsg('${conv.phone}')}"></textarea>
       <button class="btn btn-wa" onclick="sendWaMsg('${conv.phone}')"><i class="ti ti-send"></i></button>
     </div>`;
@@ -1187,6 +1196,45 @@ async function deleteBotConv(id) {
   activeConvId = null;
   document.getElementById('chat-area').innerHTML = '<div class="chat-empty"><i class="ti ti-message-dots"></i><span>בחר שיחה מהרשימה</span></div>';
   loadAllConversations();
+}
+
+async function sendFileToCustomer(phone) {
+  var choice = confirm('לחץ OK להעלאת קובץ מהמחשב\nלחץ Cancel לשלוח קישור (URL)');
+  if (choice) {
+    // העלאת קובץ מהמחשב
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip';
+    input.onchange = async function() {
+      var file = input.files[0];
+      if (!file) return;
+      if (file.size > 15 * 1024 * 1024) { showToast('קובץ גדול מדי (מקס 15MB)'); return; }
+      var caption = prompt('תיאור (אופציונלי):') || '';
+      var formData = new FormData();
+      formData.append('file', file);
+      formData.append('caption', caption);
+      showToast('מעלה קובץ...');
+      try {
+        var r = await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/upload-file', { method:'POST', headers:{'x-auth-token':authToken}, body: formData });
+        var d = await r.json();
+        if (d.success) { showToast('קובץ נשלח ✅'); openWaConv(phone); }
+        else showToast('שגיאה: '+(d.error||''));
+      } catch(e) { showToast('שגיאת חיבור'); }
+    };
+    input.click();
+  } else {
+    // שליחת קישור
+    var fileUrl = prompt('הדבק קישור לקובץ (URL):');
+    if (!fileUrl || !fileUrl.trim()) return;
+    var caption = prompt('תיאור (אופציונלי):') || '';
+    var fileName = fileUrl.split('/').pop().split('?')[0] || 'file';
+    try {
+      var r = await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/send-file', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({fileUrl:fileUrl.trim(), fileName, caption}) });
+      var d = await r.json();
+      if (d.success) { showToast('קובץ נשלח ✅'); openWaConv(phone); }
+      else showToast('שגיאה: '+(d.error||''));
+    } catch(e) { showToast('שגיאת חיבור'); }
+  }
 }
 
 function showNewContactModal() {
