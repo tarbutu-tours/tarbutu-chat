@@ -235,6 +235,7 @@ select.avail-select option{color:#333}
       <div class="sidebar-hdr">
         <span class="sidebar-title">שיחות פעילות <span id="conv-total" class="badge badge-warn" style="margin-right:4px">0</span></span>
         <div style="display:flex;gap:4px">
+          <button class="btn btn-sm btn-outline" onclick="showNewContactModal()" title="לקוח חדש"><i class="ti ti-user-plus"></i></button>
           <button class="btn btn-sm btn-outline" onclick="toggleSelectMode()" id="select-mode-btn" title="בחר שיחות"><i class="ti ti-checkbox"></i></button>
           <button class="btn btn-sm btn-danger" onclick="deleteSelected()" id="delete-selected-btn" style="display:none"><i class="ti ti-trash"></i> (<span id="selected-count">0</span>)</button>
           <button class="btn btn-sm btn-outline" onclick="showDeleteModal()" title="מחק שיחות"><i class="ti ti-trash"></i></button>
@@ -423,6 +424,22 @@ select.avail-select option{color:#333}
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('tag-modal')">ביטול</button>
       <button class="btn btn-primary" onclick="doAddTag()">הוסף</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="newcontact-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>לקוח חדש</h3><button class="modal-close" onclick="closeModal('newcontact-modal')">×</button></div>
+    <div class="modal-body">
+      <div class="modal-form">
+        <div><label>שם הלקוח</label><input type="text" id="new-contact-name" placeholder="ישראל ישראלי"></div>
+        <div><label>מספר טלפון (עם קידומת 972)</label><input type="text" id="new-contact-phone" placeholder="972501234567" style="direction:ltr"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('newcontact-modal')">ביטול</button>
+      <button class="btn btn-primary" onclick="doAddNewContact()"><i class="ti ti-user-plus"></i> הוסף</button>
     </div>
   </div>
 </div>
@@ -1170,6 +1187,28 @@ async function deleteBotConv(id) {
   activeConvId = null;
   document.getElementById('chat-area').innerHTML = '<div class="chat-empty"><i class="ti ti-message-dots"></i><span>בחר שיחה מהרשימה</span></div>';
   loadAllConversations();
+}
+
+function showNewContactModal() {
+  document.getElementById('new-contact-name').value = '';
+  document.getElementById('new-contact-phone').value = '';
+  showModal('newcontact-modal');
+}
+
+async function doAddNewContact() {
+  var name = document.getElementById('new-contact-name').value.trim();
+  var phone = document.getElementById('new-contact-phone').value.trim().replace(/[^0-9]/g, '');
+  if (!name) { showToast('נא להזין שם'); return; }
+  if (!phone || phone.length < 10) { showToast('נא להזין מספר תקין'); return; }
+  if (!phone.startsWith('972')) phone = '972' + phone.replace(/^0/, '');
+  try {
+    await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/send', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({message:'שלום ' + name + '! 👋'}) });
+    await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/rename', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({name}) });
+    closeModal('newcontact-modal');
+    showToast('לקוח נוסף ✅');
+    loadAllConversations();
+    setTimeout(function() { openWaConv(phone); }, 1000);
+  } catch(e) { showToast('שגיאה: ' + e.message); }
 }
 
 async function renameContact(phone) {
