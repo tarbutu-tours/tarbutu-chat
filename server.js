@@ -6,6 +6,10 @@ const twilio = require('twilio');
 const axios = require('axios');
 const path = require('path');
 const crypto = require('crypto');
+const multer = require('multer');
+const FormData = require('form-data');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 const app = express();
 app.use(cors());
@@ -253,6 +257,88 @@ async function sendGreenAPI(chatId, message) {
   }
 }
 
+// ── Green API — שליחת קובץ ─────────────────────────────
+
+async function sendGreenAPIFile(chatId, fileUrl, fileName, caption) {
+  try {
+    await axios.post(`${GREEN_API_BASE}/sendFileByUrl/${GREEN_API_TOKEN}`, {
+      chatId,
+      urlFile: fileUrl,
+      fileName: fileName || 'file',
+      caption: caption || ''
+    });
+  } catch (err) {
+    console.error('Green API file send error:', err.message);
+  }
+}
+
+// שליחת קובץ מנציג — מקישור
+app.post('/api/wa-conversations/:phone/send-file', async (req, res) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone);
+    const { fileUrl, fileName, caption } = req.body;
+    if (!fileUrl) return res.status(400).json({ error: 'חסר קישור לקובץ' });
+
+    await sendGreenAPIFile(`${phone}@c.us`, fileUrl, fileName, caption);
+
+    // שמור בהיסטוריה
+    const conv = await getConversation(phone);
+    const msgs = conv?.messages || [];
+    const token = req.headers['x-auth-token'];
+    let agentName = 'נציג';
+    if (token === 'admin-token-tarbutu') agentName = 'מחלקת אופרציה';
+    else if (token) {
+      try { const { data } = await supabase.from('agents').select('name').eq('token', token).single(); if (data) agentName = data.name; } catch(e) {}
+    }
+
+    msgs.push({ role: 'agent', content: caption || '📎 קובץ', fileUrl, fileName, time: new Date().toISOString(), channel: 'green', agentName });
+    await upsertConversation(phone, { messages: msgs, last_reply: '📎 קובץ' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// שליחת קובץ מנציג — העלאה מהמחשב
+app.post('/api/wa-conversations/:phone/upload-file', upload.single('file'), async (req, res) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone);
+    const file = req.file;
+    const caption = req.body.caption || '';
+    if (!file) return res.status(400).json({ error: 'לא נבחר קובץ' });
+
+    // שלח ל-Green API דרך sendFileByUpload
+    const formData = new FormData();
+    formData.append('chatId', `${phone}@c.us`);
+    formData.append('file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+    formData.append('fileName', file.originalname);
+    formData.append('caption', caption);
+
+    await axios.post(`${GREEN_API_BASE}/sendFileByUpload/${GREEN_API_TOKEN}`, formData, {
+      headers: formData.getHeaders(),
+      maxContentLength: 20 * 1024 * 1024,
+      maxBodyLength: 20 * 1024 * 1024,
+    });
+
+    // שמור בהיסטוריה
+    const conv = await getConversation(phone);
+    const msgs = conv?.messages || [];
+    const token = req.headers['x-auth-token'];
+    let agentName = 'נציג';
+    if (token === 'admin-token-tarbutu') agentName = 'מחלקת אופרציה';
+    else if (token) {
+      try { const { data } = await supabase.from('agents').select('name').eq('token', token).single(); if (data) agentName = data.name; } catch(e) {}
+    }
+
+    msgs.push({ role: 'agent', content: caption || '📎 ' + file.originalname, fileName: file.originalname, time: new Date().toISOString(), channel: 'green', agentName });
+    await upsertConversation(phone, { messages: msgs, last_reply: '📎 ' + file.originalname });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Upload] Error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Knowledge Base ───────────────────────────────────────
 
 const TRIPS = [
@@ -478,14 +564,41 @@ app.post('/webhook/greenapi', async (req, res) => {
     const msg = body.messageData;
     const chatId = body.senderData?.chatId;
     const phone = chatId?.replace('@c.us', '').replace('@g.us', '');
-    const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
     const senderName = body.senderData?.senderName || body.senderData?.pushname || phone;
-    if (!text || !phone) return;
-    console.log(`[Webhook Green] ${senderName} (${phone}): ${text}`);
+    if (!phone) return;
+
+    // טקסט רגיל
+    const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
+
+    // קבצים: תמונה, מסמך, אודיו, וידאו
+    const fileMsg = msg?.imageMessage || msg?.documentMessage || msg?.audioMessage || msg?.videoMessage;
+    const fileUrl = fileMsg?.downloadUrl || null;
+    const fileName = fileMsg?.fileName || fileMsg?.caption || '';
+    const fileType = msg?.typeMessage || '';
+
+    if (!text && !fileUrl) return;
+
+    console.log(`[Webhook Green] ${senderName} (${phone}): ${text || '[קובץ: '+fileType+']'}`);
     const existing = await getConversation(phone);
     const msgs = existing?.messages || [];
-    msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
-    const updates = { messages: msgs, last_message: text, status: existing?.status || 'new', channel: 'green', contact_name: senderName };
+
+    if (fileUrl) {
+      // הודעת קובץ
+      msgs.push({
+        role: 'user',
+        content: fileName || 'קובץ',
+        fileUrl,
+        fileType,
+        fileName: fileName || 'קובץ',
+        time: new Date().toISOString(),
+        channel: 'green'
+      });
+    }
+    if (text) {
+      msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
+    }
+
+    const updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
 
     // שיוך אוטומטי לנציג — רק בפנייה חדשה (אין שיחה קיימת או שהיא טופלה)
     if (!existing || existing.status === 'resolved' || !existing.assigned_agent) {
