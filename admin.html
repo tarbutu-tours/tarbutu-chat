@@ -238,8 +238,8 @@ select.avail-select option{color:#333}
           <button class="btn btn-sm btn-outline" onclick="showNewContactModal()" title="לקוח חדש"><i class="ti ti-user-plus"></i></button>
           <button class="btn btn-sm btn-outline" onclick="toggleSelectMode()" id="select-mode-btn" title="בחר שיחות"><i class="ti ti-checkbox"></i></button>
           <button class="btn btn-sm btn-danger" onclick="deleteSelected()" id="delete-selected-btn" style="display:none"><i class="ti ti-trash"></i> (<span id="selected-count">0</span>)</button>
-          <button class="btn btn-sm btn-outline" onclick="showDeleteModal()" title="מחק שיחות"><i class="ti ti-trash"></i></button>
-          <button class="btn btn-sm btn-danger" onclick="deleteAll()" title="מחק הכל"><i class="ti ti-trash"></i> הכל</button>
+          <button class="btn btn-sm btn-outline" onclick="showDeleteModal()" title="מחק שיחות" id="delete-conv-btn" style="display:none"><i class="ti ti-trash"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteAll()" title="מחק הכל" id="delete-all-btn" style="display:none"><i class="ti ti-trash"></i> הכל</button>
           <button class="btn btn-sm btn-outline" onclick="loadAllConversations()" title="רענן"><i class="ti ti-refresh"></i></button>
         </div>
       </div>
@@ -532,7 +532,13 @@ function initApp() {
   document.getElementById('nav-agent-name').textContent = currentAgent.name;
   document.getElementById('avail-select').value = currentAgent.availability || 'online';
   updateAvailDot(currentAgent.availability || 'online');
-  if (currentAgent.role === 'admin') {
+  
+  // הצג כפתורי מחיקה רק ל-Admin
+  const isAdmin = currentAgent.role === 'admin';
+  document.getElementById('delete-conv-btn').style.display = isAdmin ? 'flex' : 'none';
+  document.getElementById('delete-all-btn').style.display = isAdmin ? 'flex' : 'none';
+  
+  if (isAdmin) {
     document.getElementById('tab-agents').style.display = 'flex';
     document.getElementById('tab-reports').style.display = 'flex';
     document.getElementById('tab-knowledge').style.display = 'flex';
