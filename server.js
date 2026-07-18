@@ -272,6 +272,20 @@ async function sendGreenAPIFile(chatId, fileUrl, fileName, caption) {
   }
 }
 
+// ── Twilio ─────────────────────────────────────────────────
+
+async function sendTwilioMsg(phone, message) {
+  try {
+    await twilioClient.messages.create({
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`,
+      to: `whatsapp:${phone}`,
+      body: message
+    });
+  } catch (err) {
+    console.error('Twilio send error:', err.message);
+  }
+}
+
 // שליחת קובץ מנציג — מקישור
 app.post('/api/wa-conversations/:phone/send-file', async (req, res) => {
   try {
@@ -616,10 +630,12 @@ app.post('/webhook/greenapi', async (req, res) => {
 });
 
 app.post('/webhook/whatsapp', async (req, res) => {
+  res.sendStatus(200);
   try {
     const from = req.body.From?.replace('whatsapp:', '');
     const text = req.body.Body;
-    if (!from || !text) return res.sendStatus(200);
+    if (!from || !text) return;
+    
     console.log(`[Twilio] ${from}: ${text}`);
 
     // שמור שיחה
@@ -627,26 +643,24 @@ app.post('/webhook/whatsapp', async (req, res) => {
     const msgs = existing?.messages || [];
     msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'twilio' });
     
-    // שלח הודעת הפניה אוטומטית ל-Green API
-    const redirectMsg = 'שלום! 👋 לשירות מהיר ומלא, אנא שלח הודעה למספר הוואטסאפ שלנו: +972523661744\nנשמח לעזור!';
-    
-    // שמור כטופל אוטומטית
-    await upsertConversation(from, { 
+    const updates = { 
       messages: msgs, 
       last_message: text, 
-      status: 'resolved', 
-      channel: 'twilio' 
-    });
+      status: existing?.status || 'new',
+      channel: 'twilio'
+    };
 
-    // שלח תשובה אוטומטית דרך Twilio
-    const MessagingResponse = require('twilio').twiml.MessagingResponse;
-    const twiml = new MessagingResponse();
-    twiml.message(redirectMsg);
-    res.type('text/xml');
-    res.send(twiml.toString());
+    // שיוך אוטומטי לנציג — רק בפנייה חדשה
+    if (!existing || existing.status === 'resolved' || !existing.assigned_agent) {
+      try {
+        const pdInfo = await findPipedriveInfo(from);
+        if (pdInfo.agentId) updates.assigned_agent = pdInfo.agentId;
+      } catch(e) { console.error('[Twilio] Pipedrive lookup error:', e.message); }
+    }
+
+    await upsertConversation(from, updates);
   } catch (err) {
     console.error('Twilio webhook error:', err.message);
-    res.sendStatus(500);
   }
 });
 
