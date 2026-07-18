@@ -996,17 +996,39 @@ app.post('/api/wa-conversations/:phone/transfer', async (req, res) => {
 });
 
 app.delete('/api/wa-conversations/delete-all', async (req, res) => {
-  try { await supabase.from('conversations').delete().neq('phone', ''); res.json({ success: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const token = req.headers['x-auth-token'];
+    // רק admin יכול למחוק הכל
+    if (token !== 'admin-token-tarbutu') {
+      const { data } = await supabase.from('agents').select('role').eq('token', token).single();
+      if (!data || data.role !== 'admin') return res.status(403).json({ error: 'הרשאה נדחתה — רק Admin יכול למחוק' });
+    }
+    await supabase.from('conversations').delete().neq('phone', '');
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/wa-conversations/:phone', async (req, res) => {
-  try { await supabase.from('conversations').delete().eq('phone', decodeURIComponent(req.params.phone)); res.json({ success: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const token = req.headers['x-auth-token'];
+    // רק admin יכול למחוק
+    if (token !== 'admin-token-tarbutu') {
+      const { data } = await supabase.from('agents').select('role').eq('token', token).single();
+      if (!data || data.role !== 'admin') return res.status(403).json({ error: 'הרשאה נדחתה — רק Admin יכול למחוק' });
+    }
+    await supabase.from('conversations').delete().eq('phone', decodeURIComponent(req.params.phone));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/wa-conversations', async (req, res) => {
   try {
+    const token = req.headers['x-auth-token'];
+    // רק admin יכול למחוק
+    if (token !== 'admin-token-tarbutu') {
+      const { data } = await supabase.from('agents').select('role').eq('token', token).single();
+      if (!data || data.role !== 'admin') return res.status(403).json({ error: 'הרשאה נדחתה — רק Admin יכול למחוק' });
+    }
     const { data } = await supabase.from('conversations').select('phone').eq('status', 'resolved');
     if (data) for (const c of data) await supabase.from('conversations').delete().eq('phone', c.phone);
     res.json({ deleted: data?.length || 0 });
@@ -1035,8 +1057,16 @@ app.get('/api/conversations/:phone', async (req, res) => {
 });
 
 app.delete('/api/conversations/:phone', async (req, res) => {
-  try { await supabase.from('conversations').delete().eq('phone', req.params.phone); res.json({ success: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const token = req.headers['x-auth-token'];
+    // רק admin יכול למחוק
+    if (token !== 'admin-token-tarbutu') {
+      const { data } = await supabase.from('agents').select('role').eq('token', token).single();
+      if (!data || data.role !== 'admin') return res.status(403).json({ error: 'הרשאה נדחתה — רק Admin יכול למחוק' });
+    }
+    await supabase.from('conversations').delete().eq('phone', req.params.phone);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/conversations/:id/takeover', async (req, res) => {
