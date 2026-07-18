@@ -630,11 +630,14 @@ app.post('/webhook/greenapi', async (req, res) => {
 });
 
 app.post('/webhook/whatsapp', async (req, res) => {
-  res.sendStatus(200);
   try {
     const from = req.body.From?.replace('whatsapp:', '');
     const text = req.body.Body;
-    if (!from || !text) return;
+    if (!from || !text) {
+      res.type('text/xml');
+      res.send('<Response></Response>');
+      return;
+    }
     
     console.log(`[Twilio] ${from}: ${text}`);
 
@@ -659,8 +662,14 @@ app.post('/webhook/whatsapp', async (req, res) => {
     }
 
     await upsertConversation(from, updates);
+    
+    // תשובה ריקה ל-Twilio
+    res.type('text/xml');
+    res.send('<Response></Response>');
   } catch (err) {
     console.error('Twilio webhook error:', err.message);
+    res.type('text/xml');
+    res.send('<Response></Response>');
   }
 });
 
