@@ -1274,18 +1274,84 @@ app.post('/api/import-green', (req, res) => { res.json({ success: true, message:
 app.get('/api/reports', async (req, res) => {
   try {
     const convs = await getAllConversations();
-    const byStatus = { new: 0, open: 0, resolved: 0 };
+    const today = new Date().toDateString();
+    
+    // סטטיסטיקות יום
+    const byStatus = { new: 0, open: 0, resolved: 0, awaiting: 0 };
     const byChannel = { green: 0, twilio: 0 };
-    convs.forEach(c => { const s = c.status || 'new'; byStatus[s] = (byStatus[s] || 0) + 1; if (c.channel === 'twilio') byChannel.twilio++; else byChannel.green++; });
-    res.json({ total: convs.length, byStatus, byChannel, agentStats: [] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const agentStats = {};
+    
+    convs.forEach(c => {
+      const s = c.status || 'new';
+      byStatus[s] = (byStatus[s] || 0) + 1;
+      if (c.channel === 'twilio') byChannel.twilio++;
+      else byChannel.green++;
+      
+      // ביצוע נציגים
+      if (c.assigned_agent) {
+        if (!agentStats[c.assigned_agent]) {
+          agentStats[c.assigned_agent] = { total: 0, resolved: 0, messages: 0, avgResponseTime: 0 };
+        }
+        agentStats[c.assigned_agent].total++;
+        if (c.status === 'resolved') agentStats[c.assigned_agent].resolved++;
+        agentStats[c.assigned_agent].messages += (c.messages || []).length;
+        
+        // חישוב זמן מענה ממוצע
+        const messages = c.messages || [];
+        if (messages.length > 1) {
+          let firstUserMsg = null;
+          let firstAgentMsg = null;
+          
+          for (const msg of messages) {
+            if (!firstUserMsg && msg.role === 'user') firstUserMsg = new Date(msg.time);
+            if (!firstAgentMsg && msg.role === 'agent') firstAgentMsg = new Date(msg.time);
+            if (firstUserMsg && firstAgentMsg) break;
+          }
+          
+          if (firstUserMsg && firstAgentMsg) {
+            const responseTime = (firstAgentMsg - firstUserMsg) / 60000; // דקות
+            agentStats[c.assigned_agent].avgResponseTime = responseTime;
+          }
+        }
+      }
+    });
+    
+    // קבל שמות נציגים
+    const { data: agents } = await supabase.from('agents').select('id, name, role');
+    const agentMap = {};
+    if (agents) agents.forEach(a => { agentMap[a.id] = a.name; });
+    
+    // פרמט ביצוע
+    const agentPerformance = Object.entries(agentStats).map(([id, stats]) => ({
+      id,
+      name: agentMap[id] || id,
+      total: stats.total,
+      resolved: stats.resolved,
+      avgResponseTime: Math.round(stats.avgResponseTime),
+      messages: stats.messages,
+      rating: Math.round((stats.resolved / stats.total) * 100) || 0
+    })).sort((a, b) => b.total - a.total);
+    
+    res.json({
+      total: convs.length,
+      byStatus,
+      byChannel,
+      agentStats: agentPerformance
+    });
+  } catch (err) {
+    console.error('[Reports Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/send', async (req, res) => {
   try {
     const { phone, message, channel } = req.body;
-    if (channel === 'whatsapp-twilio') { await twilioClient.messages.create({ from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`, to: `whatsapp:${phone}`, body: message }); }
-    else { await sendGreenAPI(`${phone}@c.us`, message); }
+    if (channel === 'whatsapp-twilio') { 
+      await sendTwilioMsg(phone, message);
+    } else { 
+      await sendGreenAPI(`${phone}@c.us`, message); 
+    }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
