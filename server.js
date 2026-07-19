@@ -332,6 +332,44 @@ async function isOpenNow() {
   }
 }
 
+// ── Widget Welcome Messages ────────────────────────────
+
+app.post('/api/widget/start-chat', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'חסר מספר טלפון' });
+    
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) return res.status(400).json({ error: 'מספר לא תקין' });
+    
+    // הודעה 1 - מיד
+    const msg1 = 'שלום 👋 מה אוכל לעזור?';
+    await sendGreenAPI(`${normalizedPhone}@c.us`, msg1);
+    
+    // הודעה 2 - אחרי 60 שניות
+    setTimeout(async () => {
+      const msg2 = 'נציגים שלנו עסוקים כרגע ויתפנו אליך בזמן הקרוב ⏱️';
+      await sendGreenAPI(`${normalizedPhone}@c.us`, msg2);
+    }, 60000); // 60 שניות
+    
+    // שמור שיחה
+    await upsertConversation(normalizedPhone, {
+      messages: [
+        { role: 'agent', content: msg1, time: new Date().toISOString(), channel: 'green', agentName: 'בוט' }
+      ],
+      last_message: msg1,
+      status: 'new',
+      channel: 'green',
+      source: 'widget'
+    });
+    
+    res.json({ success: true, phone: normalizedPhone });
+  } catch (err) {
+    console.error('[Widget Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Twilio ─────────────────────────────────────────────────
 
 async function sendTwilioMsg(phone, message) {
