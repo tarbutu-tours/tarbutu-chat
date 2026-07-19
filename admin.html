@@ -641,6 +641,7 @@ function getStatusBadge(status) {
   if (status === 'new') return '<span class="badge badge-new">🔴 חדש</span>';
   if (status === 'open') return '<span class="badge badge-open">🟡 בטיפול</span>';
   if (status === 'resolved') return '<span class="badge badge-resolved">✅ טופל</span>';
+  if (status === 'awaiting') return '<span class="badge badge-warn">⏳ בהמתנה</span>';
   return '';
 }
 
@@ -1252,10 +1253,15 @@ function showNewContactModal() {
 
 async function doAddNewContact() {
   var name = document.getElementById('new-contact-name').value.trim();
-  var phone = document.getElementById('new-contact-phone').value.trim().replace(/[^0-9]/g, '');
+  var phone = document.getElementById('new-contact-phone').value.trim();
   if (!name) { showToast('נא להזין שם'); return; }
   if (!phone || phone.length < 10) { showToast('נא להזין מספר תקין'); return; }
-  if (!phone.startsWith('972')) phone = '972' + phone.replace(/^0/, '');
+  
+  // Normalize phone
+  phone = normalizePhone(phone);
+  
+  if (!phone) { showToast('מספר לא תקין'); return; }
+  
   try {
     await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/send', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({message:'שלום ' + name + '! 👋'}) });
     await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/rename', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({name}) });
@@ -1264,6 +1270,16 @@ async function doAddNewContact() {
     loadAllConversations();
     setTimeout(function() { openWaConv(phone); }, 1000);
   } catch(e) { showToast('שגיאה: ' + e.message); }
+}
+
+function normalizePhone(phone) {
+  if (!phone) return null;
+  var normalized = phone.replace(/[^0-9+]/g, '');
+  if (normalized.startsWith('+972')) return normalized;
+  if (normalized.startsWith('00972')) return '+' + normalized.slice(2);
+  if (normalized.startsWith('0')) return '+972' + normalized.slice(1);
+  if (normalized.startsWith('972')) return '+' + normalized;
+  return normalized;
 }
 
 async function renameContact(phone) {
