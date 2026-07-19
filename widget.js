@@ -56,7 +56,7 @@
           justify-content: space-between;
           align-items: center;
         ">
-          <h3 style="margin: 0; font-size: 16px;">ברוכים הבאים לתרבותו 👋</h3>
+          <h3 style="margin: 0; font-size: 18px; line-height: 1.6; font-weight: 600;">ברוכים הבאים לתרבותו 👋</h3>
           <button id="tarbutu-close-popup" style="
             background: transparent;
             border: none;
