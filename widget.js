@@ -132,8 +132,8 @@
 
     // כשלוחצים על כפתור WhatsApp
     whatsappButton.addEventListener('click', async () => {
-      // קבל מספר טלפון (אפשר להוסיף input אם צריך)
-      const phoneNumber = '972523661744'; // מספר ברירת מחדל
+      // מספר Green API
+      const phoneNumber = '+972523661744';
       
       try {
         // שלח בקשה לשרת - שיגיד לשלוח הודעות
@@ -145,7 +145,7 @@
 
         if (response.ok) {
           console.log('✅ הודעות יישלחו בעוד רגעים');
-          // פתח WhatsApp
+          // פתח WhatsApp דרך Green API
           window.open('https://wa.me/972523661744', '_blank');
           // סגור popup
           popup.style.display = 'none';
