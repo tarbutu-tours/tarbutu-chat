@@ -276,13 +276,31 @@ async function sendGreenAPIFile(chatId, fileUrl, fileName, caption) {
 
 async function sendTwilioMsg(phone, message) {
   try {
-    await twilioClient.messages.create({
-      from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`,
-      to: `whatsapp:${phone}`,
-      body: message
-    });
+    const from = process.env.TWILIO_WHATSAPP_FROM;
+    const accountSid = process.env.TWILIO_SID;
+    const authToken = process.env.TWILIO_TOKEN;
+    
+    const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+    
+    const formData = new URLSearchParams();
+    formData.append('From', `whatsapp:${from}`);
+    formData.append('To', `whatsapp:${phone}`);
+    formData.append('Body', message);
+    
+    const response = await axios.post(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
+    
+    console.log('[Twilio] Message sent:', response.data.sid);
   } catch (err) {
-    console.error('Twilio send error:', err.message);
+    console.error('[Twilio] Send error:', err.response?.data || err.message);
   }
 }
 
@@ -949,7 +967,7 @@ app.post('/api/wa-conversations/:phone/send', async (req, res) => {
     }
     
     if (conv?.channel === 'twilio') {
-      await twilioClient.messages.create({ from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`, to: `whatsapp:${phone}`, body: message });
+      await sendTwilioMsg(phone, message);
     } else {
       await sendGreenAPI(`${phone}@c.us`, message);
     }
