@@ -16,7 +16,7 @@
       <button id="tarbutu-chat-button" style="
         position: fixed;
         bottom: 20px;
-        left: 20px;
+        right: 20px;
         width: 60px;
         height: 60px;
         border-radius: 50%;
@@ -37,7 +37,7 @@
       <div id="tarbutu-popup" style="
         position: fixed;
         bottom: 90px;
-        left: 20px;
+        right: 20px;
         width: 320px;
         background: white;
         border-radius: 12px;
