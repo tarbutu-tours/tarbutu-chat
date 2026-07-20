@@ -352,12 +352,22 @@ app.post('/api/widget/start-chat', async (req, res) => {
     
     // הודעה 1 - מיד
     const msg1 = 'שלום 👋 מה אוכל לעזור?';
-    await sendGreenAPI(`${normalizedPhone}@c.us`, msg1);
+    try {
+      await sendGreenAPI(`${normalizedPhone}@c.us`, msg1);
+      console.log(`[Widget] Message 1 sent to ${normalizedPhone}`);
+    } catch (err) {
+      console.error(`[Widget] Message 1 failed: ${err.message}`);
+    }
     
     // הודעה 2 - אחרי 60 שניות
     setTimeout(async () => {
       const msg2 = 'נציגים שלנו עסוקים כרגע ויתפנו אליך בזמן הקרוב ⏱️';
-      await sendGreenAPI(`${normalizedPhone}@c.us`, msg2);
+      try {
+        await sendGreenAPI(`${normalizedPhone}@c.us`, msg2);
+        console.log(`[Widget] Message 2 sent to ${normalizedPhone}`);
+      } catch (err) {
+        console.error(`[Widget] Message 2 failed: ${err.message}`);
+      }
     }, 60000); // 60 שניות
     
     // שמור שיחה
@@ -367,8 +377,7 @@ app.post('/api/widget/start-chat', async (req, res) => {
       ],
       last_message: msg1,
       status: 'new',
-      channel: 'green',
-      source: 'widget'
+      channel: 'green'
     });
     
     res.json({ success: true, phone: normalizedPhone });
@@ -717,6 +726,9 @@ app.post('/webhook/greenapi', async (req, res) => {
     if (!text && !fileUrl) return;
 
     console.log(`[Webhook Green] ${senderName} (${phone}): ${text || '[קובץ: '+fileType+']'}`);
+    
+    // קבל שיחה קיימת
+    const existing = await getConversation(phone);
     
     // בדוק אם המוקד פתוח
     const open = await isOpenNow();
