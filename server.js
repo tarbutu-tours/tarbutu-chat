@@ -738,7 +738,6 @@ app.post('/webhook/greenapi', async (req, res) => {
       // סגור - שלח הודעה אוטומטית
       const autoMsg = getNextOpenMessage();
       updates.status = 'awaiting'; // סטטוס "ממתין"
-      updates.auto_response_sent = new Date().toISOString();
       
       // שלח הודעה אוטומטית
       await sendGreenAPI(`${phone}@c.us`, autoMsg);
@@ -811,7 +810,6 @@ app.post('/webhook/whatsapp', async (req, res) => {
       // סגור - שלח הודעה אוטומטית
       const autoMsg = getNextOpenMessage();
       updates.status = 'awaiting'; // סטטוס "ממתין"
-      updates.auto_response_sent = new Date().toISOString();
       
       // שלח הודעה אוטומטית דרך Twilio
       await sendTwilioMsg(from, autoMsg);
