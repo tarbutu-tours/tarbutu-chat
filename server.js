@@ -269,8 +269,10 @@ async function sendGreenAPI(chatId, message) {
     
     const response = await axios.post(url, payload);
     console.log(`[Green API] Success:`, response.data);
+    return response.data;
   } catch (err) {
     console.error(`[Green API] Error:`, err.response?.status, err.response?.data || err.message);
+    throw err; // זורק את השגיאה בחזרה!
   }
 }
 
