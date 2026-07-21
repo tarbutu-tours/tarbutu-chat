@@ -1114,7 +1114,7 @@ app.get('/api/wa-conversations/:phone', async (req, res) => {
 
 app.post('/api/wa-conversations/:phone/send', async (req, res) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = normalizePhone(decodeURIComponent(req.params.phone));
     const { message } = req.body;
     const conv = await getConversation(phone);
     
@@ -1498,3 +1498,4 @@ app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
 });
+
