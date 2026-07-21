@@ -259,9 +259,20 @@ async function deleteAgentById(id) {
 
 async function sendGreenAPI(chatId, message) {
   try {
-    await axios.post(`${GREEN_API_BASE}/sendMessage/${GREEN_API_TOKEN}`, { chatId, message });
+    const url = `${GREEN_API_BASE}/sendMessage/${GREEN_API_TOKEN}`;
+    const payload = { chatId, message };
+    
+    console.log(`[Green API] URL: ${url}`);
+    console.log(`[Green API] ChatID: ${chatId}`);
+    console.log(`[Green API] Message: ${message}`);
+    console.log(`[Green API] Payload:`, JSON.stringify(payload));
+    
+    const response = await axios.post(url, payload);
+    console.log(`[Green API] Success:`, response.data);
+    return response.data;
   } catch (err) {
-    console.error('Green API send error:', err.message);
+    console.error(`[Green API] Error:`, err.response?.status, err.response?.data || err.message);
+    throw err; // זורק את השגיאה בחזרה!
   }
 }
 
@@ -294,98 +305,7 @@ function normalizePhone(phone) {
 
 // ── Opening Hours ──────────────────────────────────────────
 
-function getNextOpenMessage() {
-  const now = new Date();
-  const currentDay = now.getDay(); // 0=ראשון, 5=שישי, 6=שבת
-  const currentHour = now.getHours();
-  const currentMin = now.getMinutes();
-  const currentTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
-  
-  // בדוק אם היום פתוח
-  const isOpen = currentDay >= 0 && currentDay <= 4; // ראשון-חמישי
-  const openHour = '09:00';
-  const closeHour = '18:00';
-  
-  if (isOpen && currentTimeStr >= openHour && currentTimeStr < closeHour) {
-    // בשעות פעילות
-    return null; // פתוח — לא צריך הודעה אוטומטית
-  }
-  
-  if (currentDay === 5 || currentDay === 6) {
-    // שישי או שבת
-    return `תודה על פנייתך! 🙏\nמוקד הטלפונים פתוח ביום ראשון בשעה 09:00\nנציג יחזור אליך בהקדם`;
-  }
-  
-  // ימים אחרים בשעות סגורות (בלילה)
-  return `תודה על פנייתך! 🙏\nמוקד הטלפונים פתוח מחר בשעה 09:00\nנציג יחזור אליך בהקדם`;
-}
-
-async function isOpenNow() {
-  try {
-    const { data } = await supabase
-      .from('opening_hours')
-      .select('*')
-      .eq('day_of_week', new Date().getDay())
-      .single();
-    
-    if (!data || !data.is_open) return false;
-    
-    const now = new Date();
-    const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    
-    return currentTimeStr >= data.open_time && currentTimeStr < data.close_time;
-  } catch (err) {
-    console.error('[Opening Hours]', err.message);
-    return true; // Default: assume open
-  }
-}
-
 // ── Widget Welcome Messages ────────────────────────────
-
-app.post('/api/widget/start-chat', async (req, res) => {
-  try {
-    const { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: 'חסר מספר טלפון' });
-    
-    const normalizedPhone = normalizePhone(phone);
-    if (!normalizedPhone) return res.status(400).json({ error: 'מספר לא תקין' });
-    
-    // הודעה 1 - מיד
-    const msg1 = 'שלום 👋 מה אוכל לעזור?';
-    try {
-      await sendGreenAPI(`${normalizedPhone}@c.us`, msg1);
-      console.log(`[Widget] Message 1 sent to ${normalizedPhone}`);
-    } catch (err) {
-      console.error(`[Widget] Message 1 failed: ${err.message}`);
-    }
-    
-    // הודעה 2 - אחרי 60 שניות
-    setTimeout(async () => {
-      const msg2 = 'נציגים שלנו עסוקים כרגע ויתפנו אליך בזמן הקרוב ⏱️';
-      try {
-        await sendGreenAPI(`${normalizedPhone}@c.us`, msg2);
-        console.log(`[Widget] Message 2 sent to ${normalizedPhone}`);
-      } catch (err) {
-        console.error(`[Widget] Message 2 failed: ${err.message}`);
-      }
-    }, 60000); // 60 שניות
-    
-    // שמור שיחה
-    await upsertConversation(normalizedPhone, {
-      messages: [
-        { role: 'agent', content: msg1, time: new Date().toISOString(), channel: 'green', agentName: 'בוט' }
-      ],
-      last_message: msg1,
-      status: 'new',
-      channel: 'green'
-    });
-    
-    res.json({ success: true, phone: normalizedPhone });
-  } catch (err) {
-    console.error('[Widget Error]', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── Twilio ─────────────────────────────────────────────────
 
@@ -730,20 +650,6 @@ app.post('/webhook/greenapi', async (req, res) => {
     // קבל שיחה קיימת
     const existing = await getConversation(phone);
     
-    // בדוק אם המוקד פתוח
-    const open = await isOpenNow();
-    let updates = { messages: [], last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
-    
-    if (!open) {
-      // סגור - שלח הודעה אוטומטית
-      const autoMsg = getNextOpenMessage();
-      updates.status = 'awaiting'; // סטטוס "ממתין"
-      
-      // שלח הודעה אוטומטית
-      await sendGreenAPI(`${phone}@c.us`, autoMsg);
-      console.log(`[Closed Hours] Auto-reply sent to ${phone}`);
-    }
-    
     const msgs = existing?.messages || [];
     
     if (fileUrl) {
@@ -762,7 +668,8 @@ app.post('/webhook/greenapi', async (req, res) => {
       msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
     }
 
-    updates.messages = msgs;
+    // שמור את ההודעה תחילה (חשוב!)
+    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
 
     // שיוך אוטומטי לנציג — רק בפנייה חדשה (אין שיחה קיימת או שהיא טופלה)
     if (!existing || existing.status === 'resolved' || !existing.assigned_agent) {
@@ -773,6 +680,7 @@ app.post('/webhook/greenapi', async (req, res) => {
       } catch(e) { console.error('[Green Webhook] Pipedrive lookup error:', e.message); }
     }
 
+    // שמור את ההודעה של הלקוח ב-Supabase
     await upsertConversation(phone, updates);
   } catch (err) {
     console.error('Webhook error:', err.message);
@@ -791,9 +699,6 @@ app.post('/webhook/whatsapp', async (req, res) => {
     
     console.log(`[Twilio] ${from}: ${text}`);
 
-    // בדוק אם המוקד פתוח
-    const open = await isOpenNow();
-    
     // שמור שיחה
     const existing = await getConversation(from);
     const msgs = existing?.messages || [];
@@ -805,16 +710,6 @@ app.post('/webhook/whatsapp', async (req, res) => {
       status: existing?.status || 'new',
       channel: 'twilio'
     };
-    
-    if (!open) {
-      // סגור - שלח הודעה אוטומטית
-      const autoMsg = getNextOpenMessage();
-      updates.status = 'awaiting'; // סטטוס "ממתין"
-      
-      // שלח הודעה אוטומטית דרך Twilio
-      await sendTwilioMsg(from, autoMsg);
-      console.log(`[Closed Hours] Auto-reply sent to ${from} via Twilio`);
-    }
 
     // שיוך אוטומטי לנציג — רק בפנייה חדשה
     if (!existing || existing.status === 'resolved' || !existing.assigned_agent) {
@@ -1095,7 +990,7 @@ app.get('/api/wa-conversations/:phone', async (req, res) => {
 
 app.post('/api/wa-conversations/:phone/send', async (req, res) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = normalizePhone(decodeURIComponent(req.params.phone));
     const { message } = req.body;
     const conv = await getConversation(phone);
     
