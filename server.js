@@ -1475,6 +1475,54 @@ app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
 // ── Start ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
+// ── Green-API Webhook Endpoint לקבלת הודעות בזמן אמת ──
+app.post('/webhook/green-api', async (req, res) => {
+  try {
+    const body = req.body;
+    
+    if (body.typeWebhook === 'incomingMessageReceived' || body.typeWebhook === 'outgoingMessageReceived') {
+      const messageData = body.messageData;
+      const senderData = body.senderData;
+      
+      if (!senderData || !messageData) {
+        return res.status(200).json({ status: 'ignored', message: 'Missing sender or message data' });
+      }
+
+      const fullWaId = senderData.chatId || senderData.sender;
+      if (!fullWaId) return res.status(200).json({ status: 'ignored', message: 'No chat identifier found' });
+      
+      const phone = fullWaId.split('@')[0]; // מחלץ את מספר הטלפון הנקי
+      
+      let textMessage = '';
+      if (messageData.typeMessage === 'textMessage') {
+        textMessage = messageData.textMessageData?.textMessage;
+      } else if (messageData.typeMessage === 'extendedTextMessage') {
+        textMessage = messageData.extendedTextMessageData?.text;
+      }
+
+      if (phone && textMessage) {
+        console.log(`[Webhook] Processing message for ${phone}: ${textMessage}`);
+        
+        // עדכון השיחה האחרונה
+        await upsertConversation(phone, { last_message: textMessage });
+
+        // שמירת ההודעה בטבלה כדי שהלקוחות יראו אותה במערכת
+        const isIncoming = body.typeWebhook === 'incomingMessageReceived';
+        await supabase.from('messages').insert([{
+          phone: phone,
+          text: textMessage,
+          sender_type: isIncoming ? 'customer' : 'agent',
+          created_at: new Date().toISOString()
+        }]);
+      }
+    }
+    return res.status(200).json({ status: 'success' });
+  } catch (err) {
+    console.error('[Webhook] Error handling Green-API request:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
