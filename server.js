@@ -13,6 +13,14 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
 
 const app = express();
 app.use(cors());
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -32,7 +40,7 @@ const twilioClient = twilio(
 );
 
 const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE || '7107666399';
-const GREEN_API_TOKEN    = process.env.GREEN_API_TOKEN    || 'e18173e79bb24641a0f3c6fb07190379c7c3d8316baf4c6cad';
+const GREEN_API_TOKEN    = process.env.GREEN_API_TOKEN    || 'f7434d0d76894545ad7050789742777d96781ce277af4a278f';
 const GREEN_API_BASE     = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE}`;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL         = 'noreply@rimon-tours.co.il';
@@ -331,6 +339,53 @@ async function isOpenNow() {
     return true; // Default: assume open
   }
 }
+
+// ── Widget Welcome Messages ────────────────────────────
+
+app.post('/api/widget/start-chat', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'חסר מספר טלפון' });
+    
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) return res.status(400).json({ error: 'מספר לא תקין' });
+    
+    // הודעה 1 - מיד
+    const msg1 = 'שלום 👋 מה אוכל לעזור?';
+    try {
+      await sendGreenAPI(`${normalizedPhone}@c.us`, msg1);
+      console.log(`[Widget] Message 1 sent to ${normalizedPhone}`);
+    } catch (err) {
+      console.error(`[Widget] Message 1 failed: ${err.message}`);
+    }
+    
+    // הודעה 2 - אחרי 60 שניות
+    setTimeout(async () => {
+      const msg2 = 'נציגים שלנו עסוקים כרגע ויתפנו אליך בזמן הקרוב ⏱️';
+      try {
+        await sendGreenAPI(`${normalizedPhone}@c.us`, msg2);
+        console.log(`[Widget] Message 2 sent to ${normalizedPhone}`);
+      } catch (err) {
+        console.error(`[Widget] Message 2 failed: ${err.message}`);
+      }
+    }, 60000); // 60 שניות
+    
+    // שמור שיחה
+    await upsertConversation(normalizedPhone, {
+      messages: [
+        { role: 'agent', content: msg1, time: new Date().toISOString(), channel: 'green', agentName: 'בוט' }
+      ],
+      last_message: msg1,
+      status: 'new',
+      channel: 'green'
+    });
+    
+    res.json({ success: true, phone: normalizedPhone });
+  } catch (err) {
+    console.error('[Widget Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── Twilio ─────────────────────────────────────────────────
 
@@ -672,6 +727,9 @@ app.post('/webhook/greenapi', async (req, res) => {
 
     console.log(`[Webhook Green] ${senderName} (${phone}): ${text || '[קובץ: '+fileType+']'}`);
     
+    // קבל שיחה קיימת
+    const existing = await getConversation(phone);
+    
     // בדוק אם המוקד פתוח
     const open = await isOpenNow();
     let updates = { messages: [], last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
@@ -680,7 +738,6 @@ app.post('/webhook/greenapi', async (req, res) => {
       // סגור - שלח הודעה אוטומטית
       const autoMsg = getNextOpenMessage();
       updates.status = 'awaiting'; // סטטוס "ממתין"
-      updates.auto_response_sent = new Date().toISOString();
       
       // שלח הודעה אוטומטית
       await sendGreenAPI(`${phone}@c.us`, autoMsg);
@@ -753,7 +810,6 @@ app.post('/webhook/whatsapp', async (req, res) => {
       // סגור - שלח הודעה אוטומטית
       const autoMsg = getNextOpenMessage();
       updates.status = 'awaiting'; // סטטוס "ממתין"
-      updates.auto_response_sent = new Date().toISOString();
       
       // שלח הודעה אוטומטית דרך Twilio
       await sendTwilioMsg(from, autoMsg);
@@ -1274,18 +1330,84 @@ app.post('/api/import-green', (req, res) => { res.json({ success: true, message:
 app.get('/api/reports', async (req, res) => {
   try {
     const convs = await getAllConversations();
-    const byStatus = { new: 0, open: 0, resolved: 0 };
+    const today = new Date().toDateString();
+    
+    // סטטיסטיקות יום
+    const byStatus = { new: 0, open: 0, resolved: 0, awaiting: 0 };
     const byChannel = { green: 0, twilio: 0 };
-    convs.forEach(c => { const s = c.status || 'new'; byStatus[s] = (byStatus[s] || 0) + 1; if (c.channel === 'twilio') byChannel.twilio++; else byChannel.green++; });
-    res.json({ total: convs.length, byStatus, byChannel, agentStats: [] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const agentStats = {};
+    
+    convs.forEach(c => {
+      const s = c.status || 'new';
+      byStatus[s] = (byStatus[s] || 0) + 1;
+      if (c.channel === 'twilio') byChannel.twilio++;
+      else byChannel.green++;
+      
+      // ביצוע נציגים
+      if (c.assigned_agent) {
+        if (!agentStats[c.assigned_agent]) {
+          agentStats[c.assigned_agent] = { total: 0, resolved: 0, messages: 0, avgResponseTime: 0 };
+        }
+        agentStats[c.assigned_agent].total++;
+        if (c.status === 'resolved') agentStats[c.assigned_agent].resolved++;
+        agentStats[c.assigned_agent].messages += (c.messages || []).length;
+        
+        // חישוב זמן מענה ממוצע
+        const messages = c.messages || [];
+        if (messages.length > 1) {
+          let firstUserMsg = null;
+          let firstAgentMsg = null;
+          
+          for (const msg of messages) {
+            if (!firstUserMsg && msg.role === 'user') firstUserMsg = new Date(msg.time);
+            if (!firstAgentMsg && msg.role === 'agent') firstAgentMsg = new Date(msg.time);
+            if (firstUserMsg && firstAgentMsg) break;
+          }
+          
+          if (firstUserMsg && firstAgentMsg) {
+            const responseTime = (firstAgentMsg - firstUserMsg) / 60000; // דקות
+            agentStats[c.assigned_agent].avgResponseTime = responseTime;
+          }
+        }
+      }
+    });
+    
+    // קבל שמות נציגים
+    const { data: agents } = await supabase.from('agents').select('id, name, role');
+    const agentMap = {};
+    if (agents) agents.forEach(a => { agentMap[a.id] = a.name; });
+    
+    // פרמט ביצוע
+    const agentPerformance = Object.entries(agentStats).map(([id, stats]) => ({
+      id,
+      name: agentMap[id] || id,
+      total: stats.total,
+      resolved: stats.resolved,
+      avgResponseTime: Math.round(stats.avgResponseTime),
+      messages: stats.messages,
+      rating: Math.round((stats.resolved / stats.total) * 100) || 0
+    })).sort((a, b) => b.total - a.total);
+    
+    res.json({
+      total: convs.length,
+      byStatus,
+      byChannel,
+      agentStats: agentPerformance
+    });
+  } catch (err) {
+    console.error('[Reports Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/send', async (req, res) => {
   try {
     const { phone, message, channel } = req.body;
-    if (channel === 'whatsapp-twilio') { await twilioClient.messages.create({ from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM || '+97233823637'}`, to: `whatsapp:${phone}`, body: message }); }
-    else { await sendGreenAPI(`${phone}@c.us`, message); }
+    if (channel === 'whatsapp-twilio') { 
+      await sendTwilioMsg(phone, message);
+    } else { 
+      await sendGreenAPI(`${phone}@c.us`, message); 
+    }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
