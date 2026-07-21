@@ -730,20 +730,6 @@ app.post('/webhook/greenapi', async (req, res) => {
     // קבל שיחה קיימת
     const existing = await getConversation(phone);
     
-    // בדוק אם המוקד פתוח
-    const open = await isOpenNow();
-    let updates = { messages: [], last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
-    
-    if (!open) {
-      // סגור - שלח הודעה אוטומטית
-      const autoMsg = getNextOpenMessage();
-      updates.status = 'awaiting'; // סטטוס "ממתין"
-      
-      // שלח הודעה אוטומטית
-      await sendGreenAPI(`${phone}@c.us`, autoMsg);
-      console.log(`[Closed Hours] Auto-reply sent to ${phone}`);
-    }
-    
     const msgs = existing?.messages || [];
     
     if (fileUrl) {
@@ -762,7 +748,8 @@ app.post('/webhook/greenapi', async (req, res) => {
       msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
     }
 
-    updates.messages = msgs;
+    // שמור את ההודעה תחילה (חשוב!)
+    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
 
     // שיוך אוטומטי לנציג — רק בפנייה חדשה (אין שיחה קיימת או שהיא טופלה)
     if (!existing || existing.status === 'resolved' || !existing.assigned_agent) {
@@ -773,7 +760,28 @@ app.post('/webhook/greenapi', async (req, res) => {
       } catch(e) { console.error('[Green Webhook] Pipedrive lookup error:', e.message); }
     }
 
+    // שמור את ההודעה של הלקוח ב-Supabase
     await upsertConversation(phone, updates);
+    
+    // בדוק אם המוקד פתוח - שלח הודעה אוטומטית (אם יש שגיאה - זה בעד עצמו)
+    try {
+      const open = await isOpenNow();
+      if (!open) {
+        // סגור - שלח הודעה אוטומטית
+        const autoMsg = getNextOpenMessage();
+        updates.status = 'awaiting'; // סטטוס "ממתין"
+        
+        // שלח הודעה אוטומטית
+        await sendGreenAPI(`${phone}@c.us`, autoMsg);
+        console.log(`[Closed Hours] Auto-reply sent to ${phone}`);
+        
+        // עדכן סטטוס ל-awaiting אחרי השליחה
+        await upsertConversation(phone, { status: 'awaiting' });
+      }
+    } catch (err) {
+      console.error('[Auto-reply Error]', err.message);
+      // לא רוצים שהודעה של הלקוח לא תשמר בגלל שגיאה בתשובה אוטומטית
+    }
   } catch (err) {
     console.error('Webhook error:', err.message);
   }
@@ -1475,54 +1483,6 @@ app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
 // ── Start ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-// ── Green-API Webhook Endpoint לקבלת הודעות בזמן אמת ──
-app.post('/webhook/green-api', async (req, res) => {
-  try {
-    const body = req.body;
-    
-    if (body.typeWebhook === 'incomingMessageReceived' || body.typeWebhook === 'outgoingMessageReceived') {
-      const messageData = body.messageData;
-      const senderData = body.senderData;
-      
-      if (!senderData || !messageData) {
-        return res.status(200).json({ status: 'ignored', message: 'Missing sender or message data' });
-      }
-
-      const fullWaId = senderData.chatId || senderData.sender;
-      if (!fullWaId) return res.status(200).json({ status: 'ignored', message: 'No chat identifier found' });
-      
-      const phone = fullWaId.split('@')[0]; // מחלץ את מספר הטלפון הנקי
-      
-      let textMessage = '';
-      if (messageData.typeMessage === 'textMessage') {
-        textMessage = messageData.textMessageData?.textMessage;
-      } else if (messageData.typeMessage === 'extendedTextMessage') {
-        textMessage = messageData.extendedTextMessageData?.text;
-      }
-
-      if (phone && textMessage) {
-        console.log(`[Webhook] Processing message for ${phone}: ${textMessage}`);
-        
-        // עדכון השיחה האחרונה
-        await upsertConversation(phone, { last_message: textMessage });
-
-        // שמירת ההודעה בטבלה כדי שהלקוחות יראו אותה במערכת
-        const isIncoming = body.typeWebhook === 'incomingMessageReceived';
-        await supabase.from('messages').insert([{
-          phone: phone,
-          text: textMessage,
-          sender_type: isIncoming ? 'customer' : 'agent',
-          created_at: new Date().toISOString()
-        }]);
-      }
-    }
-    return res.status(200).json({ status: 'success' });
-  } catch (err) {
-    console.error('[Webhook] Error handling Green-API request:', err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
