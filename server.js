@@ -331,49 +331,6 @@ function normalizePhone(phone) {
 
 // ── Upload File ─────────────────────────────────────────
 
-app.post('/api/upload', async (req, res) => {
-  try {
-    console.log('[Upload] Body:', JSON.stringify(req.body));
-    
-    const { phone, fileUrl, fileName, fileType } = req.body;
-    
-    if (!phone || !fileUrl) {
-      return res.status(400).json({ error: 'חסרים פרטים' });
-    }
-    
-    const normalizedPhone = normalizePhone(phone);
-    if (!normalizedPhone) {
-      return res.status(400).json({ error: 'מספר לא תקין' });
-    }
-    
-    console.log('[Upload] Sending file to:', normalizedPhone);
-    
-    // שלח קובץ דרך Green API
-    await sendGreenAPIFile(normalizedPhone, fileUrl, fileName, '');
-    
-    console.log('[Upload] File sent successfully');
-    
-    // שמור בSupabase
-    const conv = await getConversation(normalizedPhone);
-    const msgs = conv?.messages || [];
-    msgs.push({
-      role: 'agent',
-      content: fileName || 'קובץ',
-      fileUrl,
-      fileType,
-      time: new Date().toISOString(),
-      channel: 'green'
-    });
-    
-    await upsertConversation(normalizedPhone, { messages: msgs });
-    
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[Upload Error]', err.message, err.stack);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ── Twilio ─────────────────────────────────────────────────
 
 async function sendTwilioMsg(phone, message) {
@@ -409,10 +366,12 @@ async function sendTwilioMsg(phone, message) {
 // שליחת קובץ מנציג — מקישור
 app.post('/api/wa-conversations/:phone/send-file', async (req, res) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = normalizePhone(decodeURIComponent(req.params.phone));
     const { fileUrl, fileName, caption } = req.body;
     if (!fileUrl) return res.status(400).json({ error: 'חסר קישור לקובץ' });
 
+    console.log('[Send File] Phone:', phone, 'File:', fileName);
+    
     await sendGreenAPIFile(phone, fileUrl, fileName, caption);
 
     // שמור בהיסטוריה
@@ -429,6 +388,7 @@ app.post('/api/wa-conversations/:phone/send-file', async (req, res) => {
     await upsertConversation(phone, { messages: msgs, last_reply: '📎 קובץ' });
     res.json({ success: true });
   } catch (err) {
+    console.error('[Send File Error]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -436,14 +396,17 @@ app.post('/api/wa-conversations/:phone/send-file', async (req, res) => {
 // שליחת קובץ מנציג — העלאה מהמחשב
 app.post('/api/wa-conversations/:phone/upload-file', upload.single('file'), async (req, res) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = normalizePhone(decodeURIComponent(req.params.phone));
     const file = req.file;
     const caption = req.body.caption || '';
     if (!file) return res.status(400).json({ error: 'לא נבחר קובץ' });
 
+    console.log('[Upload File] Phone:', phone, 'File:', file.originalname);
+
     // שלח ל-Green API דרך sendFileByUpload
     const formData = new FormData();
-    formData.append('chatId', `${phone}@c.us`);
+    const cleanPhone = phone.replace('+', '').replace('@c.us', '');
+    formData.append('chatId', `${cleanPhone}@c.us`);
     formData.append('file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
     formData.append('fileName', file.originalname);
     formData.append('caption', caption);
