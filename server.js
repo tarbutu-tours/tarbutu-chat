@@ -21,7 +21,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.urlencoded({ extended: true }));
 
 const supabase = createClient(
@@ -674,12 +675,17 @@ app.post('/webhook/greenapi', async (req, res) => {
     // קבצים: תמונה, מסמך, אודיו, וידאו
     const fileMsg = msg?.imageMessage || msg?.documentMessage || msg?.audioMessage || msg?.videoMessage;
     
-    if (fileMsg) {
-      console.log('[Webhook Green] FILE RECEIVED - Full msg:', JSON.stringify(msg, null, 2));
+    let fileUrl = null, fileName = '';
+    if (fileMsg && msg.typeMessage && ['imageMessage', 'documentMessage', 'videoMessage', 'audioMessage'].includes(msg.typeMessage)) {
+      // Green API sends file data in fileMessageData
+      fileUrl = msg.fileMessageData?.downloadUrl || msg.mediaUrl || null;
+      fileName = msg.fileMessageData?.fileName || msg.mediaName || '';
+      
+      if (fileUrl) {
+        console.log(`[Webhook Green] FILE: ${fileName}, URL: ${fileUrl}`);
+      }
     }
     
-    const fileUrl = fileMsg?.downloadUrl || null;
-    const fileName = fileMsg?.fileName || fileMsg?.caption || '';
     const fileType = msg?.typeMessage || '';
 
     if (!text && !fileUrl) return;
