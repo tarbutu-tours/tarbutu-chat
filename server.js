@@ -676,6 +676,7 @@ app.post('/webhook/greenapi', async (req, res) => {
     if (!text && !fileUrl) return;
 
     console.log(`[Webhook Green] ${senderName} (${phone}): ${text || '[קובץ: '+fileType+']'}`);
+    console.log('[Webhook Green File]', { fileUrl, fileName, fileType });
     
     // קבל שיחה קיימת
     const existing = await getConversation(phone);
