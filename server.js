@@ -677,17 +677,13 @@ app.post('/webhook/greenapi', async (req, res) => {
     const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
 
     // קבצים: תמונה, מסמך, אודיו, וידאו
-    const fileMsg = msg?.imageMessage || msg?.documentMessage || msg?.audioMessage || msg?.videoMessage;
-    
     let fileUrl = null, fileName = '';
-    if (fileMsg && msg.typeMessage && ['imageMessage', 'documentMessage', 'videoMessage', 'audioMessage'].includes(msg.typeMessage)) {
-      // Green API sends file data in fileMessageData
-      fileUrl = msg.fileMessageData?.downloadUrl || msg.mediaUrl || null;
-      fileName = msg.fileMessageData?.fileName || msg.mediaName || '';
-      
-      if (fileUrl) {
-        console.log(`[Webhook Green] FILE: ${fileName}, URL: ${fileUrl}`);
-      }
+    
+    // Green API sends files in fileMessageData object
+    if (msg?.fileMessageData?.downloadUrl) {
+      fileUrl = msg.fileMessageData.downloadUrl;
+      fileName = msg.fileMessageData.fileName || 'file';
+      console.log(`[Webhook Green] FILE: ${fileName}, URL: ${fileUrl}`);
     }
     
     const fileType = msg?.typeMessage || '';
