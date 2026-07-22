@@ -41,7 +41,7 @@ const twilioClient = twilio(
 
 const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE || '7107666399';
 const GREEN_API_TOKEN    = process.env.GREEN_API_TOKEN    || 'e18173e79bb24641a0f3c6fb07190379c7c3d8316baf4c6cad';
-const GREEN_API_BASE      = `https://7107.api.greenapi.com`;
+const GREEN_API_BASE      = `https://7107.api.greenapi.com/waInstance${GREEN_API_INSTANCE}`;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL         = 'noreply@rimon-tours.co.il';
 const PIPEDRIVE_TOKEN    = process.env.PIPEDRIVE_TOKEN || 'e30e3a85a358ecf8918b588d8af2fc31de1672dd';
