@@ -329,6 +329,45 @@ function normalizePhone(phone) {
 
 // ── Widget Welcome Messages ────────────────────────────
 
+// ── Upload File ─────────────────────────────────────────
+
+app.post('/api/upload', async (req, res) => {
+  try {
+    const { phone, fileUrl, fileName, fileType } = req.body;
+    
+    if (!phone || !fileUrl) {
+      return res.status(400).json({ error: 'חסרים פרטים' });
+    }
+    
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: 'מספר לא תקין' });
+    }
+    
+    // שלח קובץ דרך Green API
+    await sendGreenAPIFile(normalizedPhone, fileUrl, fileName, '');
+    
+    // שמור בSupabase
+    const conv = await getConversation(normalizedPhone);
+    const msgs = conv?.messages || [];
+    msgs.push({
+      role: 'agent',
+      content: fileName || 'קובץ',
+      fileUrl,
+      fileType,
+      time: new Date().toISOString(),
+      channel: 'green'
+    });
+    
+    await upsertConversation(normalizedPhone, { messages: msgs });
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Upload Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Twilio ─────────────────────────────────────────────────
 
 async function sendTwilioMsg(phone, message) {
