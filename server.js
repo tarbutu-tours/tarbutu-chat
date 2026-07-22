@@ -657,6 +657,10 @@ app.post('/webhook/greenapi', async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
+    
+    console.log('[Webhook Green] Type:', body?.typeWebhook);
+    console.log('[Webhook Green] Full body:', JSON.stringify(body).substring(0, 200));
+    
     if (body?.typeWebhook !== 'incomingMessageReceived') return;
     const msg = body.messageData;
     const chatId = body.senderData?.chatId;
