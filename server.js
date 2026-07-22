@@ -333,6 +333,8 @@ function normalizePhone(phone) {
 
 app.post('/api/upload', async (req, res) => {
   try {
+    console.log('[Upload] Body:', JSON.stringify(req.body));
+    
     const { phone, fileUrl, fileName, fileType } = req.body;
     
     if (!phone || !fileUrl) {
@@ -344,8 +346,12 @@ app.post('/api/upload', async (req, res) => {
       return res.status(400).json({ error: 'מספר לא תקין' });
     }
     
+    console.log('[Upload] Sending file to:', normalizedPhone);
+    
     // שלח קובץ דרך Green API
     await sendGreenAPIFile(normalizedPhone, fileUrl, fileName, '');
+    
+    console.log('[Upload] File sent successfully');
     
     // שמור בSupabase
     const conv = await getConversation(normalizedPhone);
@@ -363,7 +369,7 @@ app.post('/api/upload', async (req, res) => {
     
     res.json({ success: true });
   } catch (err) {
-    console.error('[Upload Error]', err.message);
+    console.error('[Upload Error]', err.message, err.stack);
     res.status(500).json({ error: err.message });
   }
 });
