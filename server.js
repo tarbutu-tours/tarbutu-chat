@@ -1424,3 +1424,5 @@ app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
 });
+// Fix - files logging
+});
