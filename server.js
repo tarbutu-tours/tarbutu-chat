@@ -700,6 +700,7 @@ app.post('/webhook/greenapi', async (req, res) => {
     
     if (fileUrl) {
       // הודעת קובץ
+      console.log('[Webhook] Adding file to messages:', { fileUrl, fileName, fileType });
       msgs.push({
         role: 'user',
         content: fileName || 'קובץ',
@@ -709,6 +710,7 @@ app.post('/webhook/greenapi', async (req, res) => {
         time: new Date().toISOString(),
         channel: 'green'
       });
+      console.log('[Webhook] Messages count after file:', msgs.length);
     }
     if (text) {
       msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
@@ -730,6 +732,7 @@ app.post('/webhook/greenapi', async (req, res) => {
 
     // שמור את ההודעה של הלקוח ב-Supabase
     await upsertConversation(phone, updates);
+    console.log('[Webhook] Saved to Supabase, messages with file:', updates.messages.some(m => m.fileUrl) ? 'YES' : 'NO');
   } catch (err) {
     console.error('Webhook error:', err.message);
   }
