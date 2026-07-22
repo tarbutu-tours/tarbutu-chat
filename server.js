@@ -673,6 +673,11 @@ app.post('/webhook/greenapi', async (req, res) => {
 
     // קבצים: תמונה, מסמך, אודיו, וידאו
     const fileMsg = msg?.imageMessage || msg?.documentMessage || msg?.audioMessage || msg?.videoMessage;
+    
+    if (fileMsg) {
+      console.log('[Webhook Green] FILE RECEIVED - Full msg:', JSON.stringify(msg, null, 2));
+    }
+    
     const fileUrl = fileMsg?.downloadUrl || null;
     const fileName = fileMsg?.fileName || fileMsg?.caption || '';
     const fileType = msg?.typeMessage || '';
