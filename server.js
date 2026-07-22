@@ -257,9 +257,13 @@ async function deleteAgentById(id) {
 
 // ── Green API ─────────────────────────────────────────────
 
-async function sendGreenAPI(chatId, message) {
+async function sendGreenAPI(phone, message) {
   try {
     const url = `${GREEN_API_BASE}/sendMessage/${GREEN_API_TOKEN}`;
+    
+    // Green API דורש chatId בפורמט: "phone@c.us" (בלי +)
+    const cleanPhone = phone.replace('+', '').replace('@c.us', '').replace('@g.us', '');
+    const chatId = `${cleanPhone}@c.us`;
     
     console.log(`[Green API] Sending to: ${chatId}`);
     console.log(`[Green API] Message: ${message}`);
