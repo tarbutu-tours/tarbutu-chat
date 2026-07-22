@@ -287,16 +287,29 @@ async function sendGreenAPI(phone, message) {
 
 // ── Green API — שליחת קובץ ─────────────────────────────
 
-async function sendGreenAPIFile(chatId, fileUrl, fileName, caption) {
+async function sendGreenAPIFile(phone, fileUrl, fileName, caption) {
   try {
-    await axios.post(`${GREEN_API_BASE}/sendFileByUrl/${GREEN_API_TOKEN}`, {
+    const cleanPhone = phone.replace('+', '').replace('@c.us', '').replace('@g.us', '');
+    const chatId = `${cleanPhone}@c.us`;
+    
+    console.log(`[Green API] Sending file to: ${chatId}`);
+    
+    const response = await axios.post(`${GREEN_API_BASE}/sendFileByUrl/${GREEN_API_TOKEN}`, {
       chatId,
       urlFile: fileUrl,
       fileName: fileName || 'file',
       caption: caption || ''
+    }, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
+    
+    console.log(`[Green API] File sent:`, response.data);
+    return response.data;
   } catch (err) {
-    console.error('Green API file send error:', err.message);
+    console.error('[Green API] File send error:', err.response?.status, err.response?.data?.message || err.message);
+    throw err;
   }
 }
 
@@ -355,7 +368,7 @@ app.post('/api/wa-conversations/:phone/send-file', async (req, res) => {
     const { fileUrl, fileName, caption } = req.body;
     if (!fileUrl) return res.status(400).json({ error: 'חסר קישור לקובץ' });
 
-    await sendGreenAPIFile(`${phone}@c.us`, fileUrl, fileName, caption);
+    await sendGreenAPIFile(phone, fileUrl, fileName, caption);
 
     // שמור בהיסטוריה
     const conv = await getConversation(phone);
