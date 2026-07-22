@@ -716,6 +716,8 @@ app.post('/webhook/greenapi', async (req, res) => {
 
     // שמור את ההודעה תחילה (חשוב!)
     let updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
+    
+    console.log('[Webhook Save]', JSON.stringify(updates, null, 2).substring(0, 300));
 
     // שיוך אוטומטי לנציג — רק בפנייה חדשה (אין שיחה קיימת או שהיא טופלה)
     if (!existing || existing.status === 'resolved' || !existing.assigned_agent) {
@@ -1420,4 +1422,3 @@ app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
 });
-
