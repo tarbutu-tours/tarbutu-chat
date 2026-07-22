@@ -260,19 +260,24 @@ async function deleteAgentById(id) {
 async function sendGreenAPI(chatId, message) {
   try {
     const url = `${GREEN_API_BASE}/sendMessage/${GREEN_API_TOKEN}`;
-    const payload = { chatId, message };
     
-    console.log(`[Green API] URL: ${url}`);
-    console.log(`[Green API] ChatID: ${chatId}`);
+    console.log(`[Green API] Sending to: ${chatId}`);
     console.log(`[Green API] Message: ${message}`);
-    console.log(`[Green API] Payload:`, JSON.stringify(payload));
     
-    const response = await axios.post(url, payload);
+    const response = await axios.post(url, { 
+      chatId, 
+      message 
+    }, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
     console.log(`[Green API] Success:`, response.data);
     return response.data;
   } catch (err) {
-    console.error(`[Green API] Error:`, err.response?.status, err.response?.data || err.message);
-    throw err; // זורק את השגיאה בחזרה!
+    console.error(`[Green API Error]`, err.response?.status, err.response?.data?.message || err.message);
+    throw err;
   }
 }
 
