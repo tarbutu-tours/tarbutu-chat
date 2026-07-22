@@ -663,6 +663,11 @@ app.post('/webhook/greenapi', async (req, res) => {
     
     if (body?.typeWebhook !== 'incomingMessageReceived') return;
     const msg = body.messageData;
+    
+    // רק logging - כדי לראות מה Green API שולח
+    if (msg?.typeMessage && ['imageMessage', 'documentMessage', 'videoMessage', 'audioMessage'].includes(msg.typeMessage)) {
+      console.log('[File Received]', JSON.stringify(msg, null, 2).substring(0, 500));
+    }
     const chatId = body.senderData?.chatId;
     const phone = normalizePhone(chatId?.replace('@c.us', '').replace('@g.us', ''));
     const senderName = body.senderData?.senderName || body.senderData?.pushname || phone;
