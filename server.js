@@ -331,6 +331,35 @@ function normalizePhone(phone) {
 
 // ── Upload File ─────────────────────────────────────────
 
+// ── Widget Start Chat ─────────────────────────────────────
+
+app.post('/api/widget/start-chat', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'חסר מספר טלפון' });
+    
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) return res.status(400).json({ error: 'מספר לא תקין' });
+    
+    console.log(`[Widget] Start chat from ${phone}`);
+    
+    // הודעה ראשונה
+    await sendGreenAPI(normalizedPhone, 'שלום 👋 מה אוכל לעזור?');
+    
+    // שמור שיחה
+    await upsertConversation(normalizedPhone, {
+      messages: [{ role: 'agent', content: 'שלום 👋 מה אוכל לעזור?', time: new Date().toISOString(), channel: 'green', agentName: 'בוט' }],
+      status: 'new',
+      channel: 'green'
+    });
+    
+    res.json({ success: true, phone: normalizedPhone });
+  } catch (err) {
+    console.error('[Widget Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Download File ─────────────────────────────────────────
 
 app.get('/api/download', async (req, res) => {
