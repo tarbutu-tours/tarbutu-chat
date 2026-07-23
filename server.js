@@ -331,6 +331,32 @@ function normalizePhone(phone) {
 
 // ── Upload File ─────────────────────────────────────────
 
+// ── Download File ─────────────────────────────────────────
+
+app.get('/api/download', async (req, res) => {
+  try {
+    const fileUrl = req.query.url;
+    if (!fileUrl) return res.status(400).json({ error: 'missing url' });
+
+    console.log('[Download] File:', fileUrl);
+    
+    const fileName = fileUrl.split('/').pop() || 'file';
+    
+    // הורד מDigital Ocean
+    const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+    
+    // שלח ללקוח עם headers נכונים
+    res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', response.data.length);
+    
+    res.send(response.data);
+  } catch (err) {
+    console.error('[Download Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Twilio ─────────────────────────────────────────────────
 
 async function sendTwilioMsg(phone, message) {
