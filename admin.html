@@ -249,6 +249,9 @@ select.avail-select option{color:#333}
         <button class="filter-btn" onclick="setFilter('new',this)">🔴 חדש</button>
         <button class="filter-btn" onclick="setFilter('open',this)">🟡 בטיפול</button>
         <button class="filter-btn" onclick="setFilter('resolved',this)">✅ טופל</button>
+        <button class="filter-btn" onclick="setGroupFilter('all',this)">📱 הכל</button>
+        <button class="filter-btn" onclick="setGroupFilter('group',this)">👥 קבוצות</button>
+        <button class="filter-btn" onclick="setGroupFilter('personal',this)">👤 אישי</button>
         <button class="filter-btn" onclick="setFilter('mine',this)">👤 שלי</button>
       </div>
       <div class="ch-tabs">
@@ -585,6 +588,15 @@ function setFilter(f, btn) {
   renderConvList();
 }
 
+var currentGroupFilter = 'all';
+
+function setGroupFilter(f, btn) {
+  currentGroupFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderConvList();
+}
+
 function showKbTab(tab) {
   document.querySelectorAll('.kb-section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.kb-tab').forEach(t=>t.classList.remove('active'));
@@ -656,6 +668,11 @@ function renderConvList() {
       if (currentFilter === 'mine') return c.isMyConv;
       return true;
     }).filter(function(c) {
+      // סנן לפי קבוצה/אישי
+      if (currentGroupFilter === 'group') return c.isGroup === true;
+      if (currentGroupFilter === 'personal') return c.isGroup !== true;
+      return true;
+    }).filter(function(c) {
       if (!_searchTerm) return true;
       return (c.name||'').toLowerCase().includes(_searchTerm) || (c.phone||'').includes(_searchTerm) || (c.lastMessage||'').toLowerCase().includes(_searchTerm);
     });
@@ -673,6 +690,7 @@ function renderConvList() {
           ${getStatusBadge(c.status||'new')}
           ${c.status==='new'?getWaitTime(c.updatedAt):''}
           ${(c.tags||[]).map(t=>'<span class="badge" style="background:#e8f4fd;color:var(--p)">'+t+'</span>').join('')}
+          ${c.isGroup?'<span class="badge" style="background:#ffe8e8;color:#c01010">👥 קבוצה</span>':''}
           ${c.assignedAgentName ? '<span class="badge badge-ok">👤 '+c.assignedAgentName+'</span>' : ''}
           <span class="badge" style="background:${c.channel==='twilio'?'#ffe8e8':'#e8fef0'};color:${c.channel==='twilio'?'#c01010':'#1a7040'}">${c.channel==='twilio'?'☎️ Twilio':'📱 Green'}</span>
           <span class="conv-time">${timeAgo(c.updatedAt)}</span>
