@@ -718,6 +718,7 @@ async function refreshWaChat(phone) {
   try {
     var r = await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone), { headers:{'x-auth-token':authToken} });
     var conv = await r.json();
+    console.log('[Admin] Loaded messages with files:', conv.messages.filter(m => m.fileUrl).length, 'files');
     var pid = phone.replace(/\+/g,'p');
     var msgEl = document.getElementById('wa-msgs-'+pid);
     if (msgEl) {
