@@ -743,7 +743,7 @@ function renderMessages(msgs) {
       if (isImage) {
         fileHtml = '<div style="margin:4px 0"><img src="'+m.fileUrl+'" style="max-width:200px;border-radius:8px;cursor:pointer" onclick="window.open(\''+m.fileUrl+'\',\'_blank\')"></div>';
       }
-      fileHtml += '<div style="margin:6px 0;display:inline-block"><a href="'+m.fileUrl+'" download="'+(m.fileName||'file')+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#fff;text-decoration:none;background:var(--p);padding:6px 12px;border-radius:8px;font-weight:600;transition:all .2s;cursor:pointer" onmouseover="this.style.background=\'var(--pd)\'" onmouseout="this.style.background=\'var(--p)\'"><i class="ti ti-download" style="font-size:16px"></i> הורד קובץ</a></div>';
+      fileHtml += '<div style="margin:6px 0;display:inline-block"><a href="/api/download?url='+encodeURIComponent(m.fileUrl)+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#fff;text-decoration:none;background:var(--p);padding:6px 12px;border-radius:8px;font-weight:600;transition:all .2s;cursor:pointer" onmouseover="this.style.background=\'var(--pd)\'" onmouseout="this.style.background=\'var(--p)\'"><i class="ti ti-download" style="font-size:16px"></i> הורד קובץ</a></div>';
     }
     return '<div class="msg '+role+'">'+(role==='agent'?'<div class="msg-sender">'+(m.agentName||'נציג')+'</div>':'')+'<div class="msg-bbl">'+fileHtml+(m.fileUrl&&!m.content?'':((m.content||'').replace(/\n/g,'<br>')))+'</div><div class="msg-meta">'+(m.time?new Date(m.time).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):'')+' '+(m.channel==='green'?'📱':'📞')+'</div></div>';
   }).join('');
