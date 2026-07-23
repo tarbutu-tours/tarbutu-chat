@@ -56,7 +56,7 @@
           justify-content: space-between;
           align-items: center;
         ">
-          <h3 style="margin: 0; font-size: 18px; line-height: 1.6; font-weight: 600;">ברוכים הבאים לתרבותו 👋</h3>
+          <h3 style="margin: 0; font-size: 18px; line-height: 1.6; font-weight: 600;">תרבותו 👋</h3>
           <button id="tarbutu-close-popup" style="
             background: transparent;
             border: none;
@@ -75,8 +75,8 @@
             line-height: 1.5;
           ">
             שלום! 👋<br>
-            אנחנו כאן כדי לעזור לך.<br>
-            <strong>מה אוכל לעשות עבורך?</strong>
+            ברוכים הבאים לתרבותו.<br>
+            <strong>איך אוכל לעזור?</strong>
           </p>
 
           <!-- WhatsApp Button -->
@@ -97,7 +97,7 @@
             font-family: inherit;
           ">
             <span style="font-size: 18px;">💬</span>
-            התחל שיחה ב-WhatsApp
+            התחל שיחה עם תרבותו
           </button>
 
           <p style="
@@ -135,27 +135,11 @@
       // מספר Green API
       const phoneNumber = '+972523661744';
       
-      try {
-        // שלח בקשה לשרת - שיגיד לשלוח הודעות
-        const response = await fetch('https://tarbutu-chat-production.up.railway.app/api/widget/start-chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: phoneNumber })
-        });
-
-        if (response.ok) {
-          console.log('✅ הודעות יישלחו בעוד רגעים');
-          // פתח WhatsApp דרך Green API
-          window.open('https://wa.me/972523661744', '_blank');
-          // סגור popup
-          popup.style.display = 'none';
-        } else {
-          alert('שגיאה - נסה שוב');
-        }
-      } catch (err) {
-        console.error('Error:', err);
-        alert('שגיאת חיבור');
-      }
+      // פתח WhatsApp דרך Green API
+      window.open('https://wa.me/'+phoneNumber, '_blank');
+      
+      // סגור popup
+      popup.style.display = 'none';
     });
   });
 })();
