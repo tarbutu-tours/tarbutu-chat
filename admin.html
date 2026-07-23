@@ -566,7 +566,7 @@ function showPage(id) {
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   document.getElementById('tab-'+id).classList.add('active');
-  if(id==='knowledge'){renderTrips();renderDocs();loadCacheStatus();}
+  if(id==='knowledge'){loadTripsFromServer();renderDocs();loadCacheStatus();}
   if(id==='agents')loadAgents();
   if(id==='reports')loadReports();
 }
@@ -1028,29 +1028,56 @@ async function loadReports() {
   } catch(e) { console.error('[Reports Error]', e.message); }
 }
 
-let trips = JSON.parse(localStorage.getItem('kb-trips')||'[]');
+let trips = [];
 let supportDocs = JSON.parse(localStorage.getItem('kb-support-docs')||'[]');
 let supportText = localStorage.getItem('kb-support-text')||'';
 
-function saveTrips(){localStorage.setItem('kb-trips',JSON.stringify(trips));syncToServer();}
-function addTrip(){
+async function loadTripsFromServer(){
+  try{
+    const r=await fetch(API+'/api/trips-list');
+    const d=await r.json();
+    trips=d.trips||[];
+    renderTrips();
+  }catch(e){trips=[];renderTrips();}
+}
+async function saveTrips(){
+  try{
+    await fetch(API+'/api/kb-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trips,supportText})});
+  }catch(e){}
+}
+async function addTrip(){
   const name=document.getElementById('trip-name').value.trim();
   const url=document.getElementById('trip-url').value.trim();
   if(!url){showToast('נא להכניס קישור');return;}
   if(trips.find(i=>i.url===url)){showToast('כבר קיים');return;}
   trips.push({name:name||url,url,addedAt:new Date().toISOString(),scanned:false});
-  saveTrips();renderTrips();
+  await saveTrips();
+  await loadTripsFromServer();
   document.getElementById('trip-name').value='';document.getElementById('trip-url').value='';
   showToast('נוסף ✅');
 }
-function bulkAddTrips(){
+async function bulkAddTrips(){
   const text=document.getElementById('trip-bulk').value.trim();
   const lines=text.split('\n').map(l=>l.trim()).filter(l=>l.startsWith('http'));
   let added=0;lines.forEach(url=>{if(!trips.find(i=>i.url===url)){trips.push({name:url,url,addedAt:new Date().toISOString(),scanned:false});added++;}});
-  saveTrips();renderTrips();document.getElementById('trip-bulk').value='';showToast('נוספו '+added+' ✅');
+  await saveTrips();
+  await loadTripsFromServer();
+  document.getElementById('trip-bulk').value='';showToast('נוספו '+added+' ✅');
 }
-function removeTrip(url){trips=trips.filter(i=>i.url!==url);saveTrips();renderTrips();}
-function clearTrips(){if(!confirm('למחוק?'))return;trips=[];saveTrips();renderTrips();}
+async function removeTrip(url){
+  try{
+    await fetch(API+'/api/trips-list',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    await loadTripsFromServer();
+    showToast('נמחק ✅');
+  }catch(e){showToast('שגיאה');}
+}
+async function clearTrips(){
+  if(!confirm('למחוק את כל הטיולים?'))return;
+  for(const t of trips){
+    await fetch(API+'/api/trips-list',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:t.url})});
+  }
+  await loadTripsFromServer();
+}
 function renderTrips(){
   document.getElementById('trips-count').textContent='('+trips.length+')';
   const el=document.getElementById('trips-list');
@@ -1102,7 +1129,7 @@ function renderDocs(){
 function removeDoc(idx){supportDocs.splice(idx,1);saveSupportData();renderDocs();}
 function setProc(s,t){const b=document.getElementById('proc-bar');if(s){b.classList.add('show');document.getElementById('proc-text').textContent=t||'מעבד...';}else b.classList.remove('show');}
 async function syncToServer(){try{await fetch(API+'/api/kb-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trips,supportText})});}catch(e){}}
-async function triggerScan(){await syncToServer();try{await fetch(API+'/api/scan-now',{method:'POST'});}catch(e){}showToast('סריקה התחילה!');setTimeout(loadCacheStatus,3000);}
+async function triggerScan(){await saveTrips();try{await fetch(API+'/api/scan-now',{method:'POST'});}catch(e){}showToast('סריקה התחילה!');setTimeout(loadCacheStatus,3000);}
 async function loadCacheStatus(){
   try{
     const r=await fetch(API+'/api/cache-status');const d=await r.json();
