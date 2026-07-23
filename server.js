@@ -585,9 +585,14 @@ async function buildKnowledgeBase() {
 }
 
 async function scanAndSaveTrips() {
-  console.log('[Scan] Starting scan of', TRIPS.length, 'trips...');
+  // סרוק מ-Supabase + מהרשימה הקבועה כגיבוי
+  const { data: dbTrips } = await supabase.from('trips_list').select('*');
+  const allTrips = dbTrips && dbTrips.length > 0 
+    ? dbTrips.map(t => ({ name: t.name, url: t.url }))
+    : TRIPS;
+  console.log('[Scan] Starting scan of', allTrips.length, 'trips...');
   let scanned = 0;
-  for (const trip of TRIPS) {
+  for (const trip of allTrips) {
     const content = await scrapeUrl(trip.url);
     if (content) {
       await supabase.from('knowledge_base').upsert([{
@@ -600,10 +605,10 @@ async function scanAndSaveTrips() {
       scanned++;
       console.log('[Scan] Scanned:', trip.name);
     }
-    await new Promise(r => setTimeout(r, 1000)); // 1 sec delay
+    await new Promise(r => setTimeout(r, 1000));
   }
   console.log('[Scan] Done:', scanned, 'trips scanned');
-  knowledgeCache = null; // Reset cache
+  knowledgeCache = null;
 }
 
 async function getKnowledge() {
@@ -1311,10 +1316,41 @@ app.post('/api/kb-update', async (req, res) => {
     if (supportText) {
       await supabase.from('knowledge_text').upsert([{ id: 1, content: supportText, updated_at: new Date().toISOString() }]);
     }
-    knowledgeCache = null; // Reset cache
+    // שמור טיולים ב-Supabase
+    if (trips && trips.length > 0) {
+      await supabase.from('trips_list').upsert(
+        trips.map(t => ({ url: t.url, name: t.name, added_at: t.addedAt || new Date().toISOString() })),
+        { onConflict: 'url' }
+      );
+    }
+    knowledgeCache = null;
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// טעינת רשימת טיולים מ-Supabase
+app.get('/api/trips-list', async (req, res) => {
+  try {
+    const { data: dbTrips } = await supabase.from('trips_list').select('*').order('added_at', { ascending: true });
+    const { data: scanned } = await supabase.from('knowledge_base').select('url, scanned_at');
+    const scannedUrls = new Set((scanned || []).map(s => s.url));
+    const trips = (dbTrips || []).map(t => ({ name: t.name, url: t.url, addedAt: t.added_at, scanned: scannedUrls.has(t.url) }));
+    res.json({ trips });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// מחיקת טיול מ-Supabase
+app.delete('/api/trips-list', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'חסר url' });
+    await supabase.from('trips_list').delete().eq('url', url);
+    await supabase.from('knowledge_base').delete().eq('url', url);
+    knowledgeCache = null;
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/scan-now', async (req, res) => { 
   res.json({ success: true, message: 'סריקה התחילה' });
   scanAndSaveTrips().catch(console.error);
@@ -1478,8 +1514,26 @@ app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, 'admin.html'
 app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
 // ── Start ─────────────────────────────────────────────────
+async function initDB() {
+  // העבר את TRIPS הקבועים ל-Supabase אם הטבלה ריקה
+  try {
+    const { data, error } = await supabase.from('trips_list').select('url').limit(1);
+    if (!error && (!data || data.length === 0)) {
+      console.log('[Init] Seeding trips_list from static TRIPS...');
+      await supabase.from('trips_list').upsert(
+        TRIPS.map(t => ({ url: t.url, name: t.name, added_at: new Date().toISOString() })),
+        { onConflict: 'url' }
+      );
+      console.log('[Init] Seeded', TRIPS.length, 'trips');
+    }
+  } catch(e) {
+    console.log('[Init] trips_list not ready yet:', e.message);
+  }
+}
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
+  await initDB();
 });
