@@ -724,9 +724,12 @@ app.post('/webhook/greenapi', async (req, res) => {
       console.log('[File Received]', JSON.stringify(msg, null, 2).substring(0, 500));
     }
     const chatId = body.senderData?.chatId;
+    const isGroup = chatId?.includes('@g.us');
     const phone = normalizePhone(chatId?.replace('@c.us', '').replace('@g.us', ''));
     const senderName = body.senderData?.senderName || body.senderData?.pushname || phone;
     if (!phone) return;
+    
+    console.log(`[Webhook Green] ${isGroup ? '👥 קבוצה' : '👤 אישי'}: ${senderName}`);
 
     // טקסט רגיל
     const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
@@ -772,7 +775,7 @@ app.post('/webhook/greenapi', async (req, res) => {
     }
 
     // שמור את ההודעה תחילה (חשוב!)
-    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
+    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName, isGroup };
     
     console.log('[Webhook Save]', JSON.stringify(updates, null, 2).substring(0, 300));
 
