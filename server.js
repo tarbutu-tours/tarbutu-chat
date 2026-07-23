@@ -521,6 +521,7 @@ const TRIPS = [
 
 let knowledgeCache = null;
 let lastScanTime = null;
+let scanState = { isScanning: false, current: 0, total: 0, currentName: '' };
 
 async function scrapeUrl(url) {
   try {
@@ -585,14 +586,21 @@ async function buildKnowledgeBase() {
 }
 
 async function scanAndSaveTrips() {
-  // סרוק מ-Supabase + מהרשימה הקבועה כגיבוי
   const { data: dbTrips } = await supabase.from('trips_list').select('*');
-  const allTrips = dbTrips && dbTrips.length > 0 
+  const allTrips = dbTrips && dbTrips.length > 0
     ? dbTrips.map(t => ({ name: t.name, url: t.url }))
     : TRIPS;
+
+  scanState = { isScanning: true, current: 0, total: allTrips.length, currentName: '' };
   console.log('[Scan] Starting scan of', allTrips.length, 'trips...');
+
   let scanned = 0;
-  for (const trip of allTrips) {
+  for (let i = 0; i < allTrips.length; i++) {
+    const trip = allTrips[i];
+    scanState.current = i + 1;
+    scanState.currentName = trip.name;
+    console.log(`[Scan] ${i+1}/${allTrips.length}: ${trip.name}`);
+
     const content = await scrapeUrl(trip.url);
     if (content) {
       await supabase.from('knowledge_base').upsert([{
@@ -603,12 +611,14 @@ async function scanAndSaveTrips() {
         scanned_at: new Date().toISOString(),
       }], { onConflict: 'url' });
       scanned++;
-      console.log('[Scan] Scanned:', trip.name);
     }
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 800));
   }
-  console.log('[Scan] Done:', scanned, 'trips scanned');
+
+  scanState = { isScanning: false, current: allTrips.length, total: allTrips.length, currentName: '' };
+  lastScanTime = new Date();
   knowledgeCache = null;
+  console.log('[Scan] Done:', scanned, '/', allTrips.length, 'trips scanned');
 }
 
 async function getKnowledge() {
@@ -1357,12 +1367,15 @@ app.post('/api/scan-now', async (req, res) => {
 });
 app.get('/api/cache-status', (req, res) => { 
   res.json({ 
-    hasCache: !!knowledgeCache, 
-    isScanning: false, 
+    hasCache: !!knowledgeCache,
+    isScanning: scanState.isScanning,
+    current: scanState.current,
+    total: scanState.total,
+    currentName: scanState.currentName,
     contentLength: knowledgeCache ? knowledgeCache.length : 0,
     lastScanned: lastScanTime,
-    pagesScanned: TRIPS.length,
-    totalPages: TRIPS.length
+    pagesScanned: scanState.current,
+    totalPages: scanState.total || TRIPS.length
   }); 
 });
 app.post('/api/import-green', (req, res) => { res.json({ success: true, message: 'לא זמין' }); });
