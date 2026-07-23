@@ -249,9 +249,7 @@ select.avail-select option{color:#333}
         <button class="filter-btn" onclick="setFilter('new',this)">🔴 חדש</button>
         <button class="filter-btn" onclick="setFilter('open',this)">🟡 בטיפול</button>
         <button class="filter-btn" onclick="setFilter('resolved',this)">✅ טופל</button>
-        <button class="filter-btn" onclick="setGroupFilter('all',this)">📱 הכל</button>
         <button class="filter-btn" onclick="setGroupFilter('group',this)">👥 קבוצות</button>
-        <button class="filter-btn" onclick="setGroupFilter('personal',this)">👤 אישי</button>
         <button class="filter-btn" onclick="setFilter('mine',this)">👤 שלי</button>
       </div>
       <div class="ch-tabs">
@@ -668,9 +666,8 @@ function renderConvList() {
       if (currentFilter === 'mine') return c.isMyConv;
       return true;
     }).filter(function(c) {
-      // סנן לפי קבוצה/אישי
+      // סנן לפי קבוצה
       if (currentGroupFilter === 'group') return c.isGroup === true;
-      if (currentGroupFilter === 'personal') return c.isGroup !== true;
       return true;
     }).filter(function(c) {
       if (!_searchTerm) return true;
@@ -776,7 +773,8 @@ function renderWaChat(conv) {
       <i class="ti ti-brand-whatsapp" style="font-size:20px;color:var(--wa)"></i>
       <div>
         <div style="font-weight:700;font-size:.9rem;display:flex;align-items:center;gap:6px">${conv.name||conv.phone}<button class="btn btn-sm btn-outline" style="padding:2px 6px;font-size:10px" onclick="renameContact('${conv.phone}')" title="שנה שם"><i class="ti ti-pencil"></i></button></div>
-        <div style="font-size:11px;color:#6c757d">📱 ${conv.phone} · ${(conv.messages||[]).length} הודעות · ${conv.channel==='twilio'?'☎️ Twilio':'📱 Green API'}</div>
+        <div style="font-size:13px;color:#0e4e7a;font-weight:600;background:#e8f4fd;padding:4px 10px;border-radius:6px;display:flex;align-items:center;gap:6px">📱 ${conv.phone} ${conv.isGroup?'👥 קבוצה':''}</div>
+        <div style="font-size:11px;color:#6c757d">${(conv.messages||[]).length} הודעות · ${conv.channel==='twilio'?'☎️ Twilio':'📱 Green API'}</div>
       </div>
       <div class="tags-area" id="conv-tags-${pid}">${tags.map(t=>'<span class="tag">'+t+'<button onclick="removeTag(\''+conv.phone+'\',\''+t+'\')">×</button></span>').join('')}</div>
       <div class="chat-topbar-actions">
