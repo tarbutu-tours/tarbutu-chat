@@ -502,11 +502,21 @@ let scanState = { isScanning: false, current: 0, total: 0, currentName: '' };
 async function scrapeUrl(url) {
   try {
     const res = await axios.get(url, { 
-      timeout: 10000,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TarbutuBot/1.0)' }
+      timeout: 15000,
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
     });
     const html = res.data;
-    // Remove HTML tags and get clean text
+    if (!html || html.length < 100) {
+      console.error(`[Scan] Empty response for ${url}`);
+      return null;
+    }
     const text = html
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -517,8 +527,9 @@ async function scrapeUrl(url) {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .trim()
-      .slice(0, 3000); // Max 3000 chars per page
-    return text;
+      .slice(0, 5000);
+    console.log(`[Scan] Got ${text.length} chars from ${url}`);
+    return text || null;
   } catch (err) {
     console.error(`[Scan] Error scraping ${url}: ${err.message}`);
     return null;
