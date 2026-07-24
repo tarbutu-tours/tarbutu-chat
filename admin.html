@@ -1129,7 +1129,7 @@ function renderDocs(){
 function removeDoc(idx){supportDocs.splice(idx,1);saveSupportData();renderDocs();}
 function setProc(s,t){const b=document.getElementById('proc-bar');if(s){b.classList.add('show');document.getElementById('proc-text').textContent=t||'מעבד...';}else b.classList.remove('show');}
 async function syncToServer(){try{await fetch(API+'/api/kb-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trips,supportText})});}catch(e){}}
-async function triggerScan(){await saveTrips();try{await fetch(API+'/api/scan-now',{method:'POST'});}catch(e){}showToast('סריקה התחילה!');setTimeout(loadCacheStatus,3000);}
+async function triggerScan(){try{await fetch(API+'/api/scan-now',{method:'POST'});}catch(e){}showToast('סריקה התחילה!');setTimeout(loadCacheStatus,3000);}
 let _scanPoll = null;
 async function loadCacheStatus(){
   try{
