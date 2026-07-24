@@ -331,6 +331,61 @@ function normalizePhone(phone) {
 
 // ── Upload File ─────────────────────────────────────────
 
+// ── Widget Start Chat ─────────────────────────────────────
+
+app.post('/api/widget/start-chat', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'חסר מספר טלפון' });
+    
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) return res.status(400).json({ error: 'מספר לא תקין' });
+    
+    console.log(`[Widget] Start chat from ${phone}`);
+    
+    // הודעה ראשונה
+    await sendGreenAPI(normalizedPhone, 'שלום 👋 מה אוכל לעזור?');
+    
+    // שמור שיחה
+    await upsertConversation(normalizedPhone, {
+      messages: [{ role: 'agent', content: 'שלום 👋 מה אוכל לעזור?', time: new Date().toISOString(), channel: 'green', agentName: 'בוט' }],
+      status: 'new',
+      channel: 'green'
+    });
+    
+    res.json({ success: true, phone: normalizedPhone });
+  } catch (err) {
+    console.error('[Widget Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Download File ─────────────────────────────────────────
+
+app.get('/api/download', async (req, res) => {
+  try {
+    const fileUrl = req.query.url;
+    if (!fileUrl) return res.status(400).json({ error: 'missing url' });
+
+    console.log('[Download] File:', fileUrl);
+    
+    const fileName = fileUrl.split('/').pop() || 'file';
+    
+    // הורד מDigital Ocean
+    const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+    
+    // שלח ללקוח עם headers נכונים
+    res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', response.data.length);
+    
+    res.send(response.data);
+  } catch (err) {
+    console.error('[Download Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Twilio ─────────────────────────────────────────────────
 
 async function sendTwilioMsg(phone, message) {
@@ -438,34 +493,11 @@ app.post('/api/wa-conversations/:phone/upload-file', upload.single('file'), asyn
 
 // ── Knowledge Base ───────────────────────────────────────
 
-const TRIPS = [
-  {name:"קרוז לאיסלנד", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost31797/"},
-  {name:"קרוזים לאוסטרליה וניו זילנד", url:"https://tarbutu.co.il/קרוזים-לאוסטרליה-וניו-זילנד/"},
-  {name:"רון וסון 13.7", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost33514/"},
-  {name:"רון וסון 19.10", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost30742/"},
-  {name:"רון וסון 24.10", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost34615/"},
-  {name:"דאורו 10.7", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost33433/"},
-  {name:"דאורו 22.8", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost33532/"},
-  {name:"דאורו 19.10", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost30769/"},
-  {name:"הכף הצפוני 26", url:"https://tarbutu.co.il/%d7%a7%d7%a8%d7%95%d7%96-%d7%9e%d7%90%d7%95%d7%a8%d7%92%d7%9f-%d7%9c%d7%a0%d7%95%d7%a8%d7%91%d7%92%d7%99%d7%94-%d7%95%d7%94%d7%9b%d7%a3-%d7%94%d7%a6%d7%a4%d7%95%d7%a0%d7%99-3/"},
-  {name:"אלסקה 26", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost30133/"},
-  {name:"ניו אינגלנד", url:"https://tarbutu.co.il/%d7%98%d7%99%d7%95%d7%9c-%d7%9e%d7%90%d7%95%d7%a8%d7%92%d7%9f-%d7%9e%d7%a9%d7%95%d7%9c%d7%91-%d7%91%d7%a7%d7%a8%d7%95%d7%96-%d7%91%d7%a0%d7%99%d7%95-%d7%90%d7%99%d7%a0%d7%92%d7%9c%d7%a0%d7%93/"},
-  {name:"אוסטרליה נוב 26", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost32521/"},
-  {name:"אוסטרליה 7.1.27", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost35331/"},
-  {name:"אוסט 02.27", url:"https://tarbutu.co.il/%d7%a7%d7%a8%d7%95%d7%96-%d7%9e%d7%90%d7%95%d7%a8%d7%92%d7%9f-%d7%a1%d7%95%d7%91%d7%91-%d7%a0%d7%99%d7%95-%d7%96%d7%99%d7%9c%d7%a0%d7%93-%d7%9b%d7%95%d7%9c%d7%9c-%d7%94%d7%90%d7%99-%d7%98%d7%a1-3/"},
-  {name:"אוס 03/27", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost35491/"},
-  {name:"האיים הברטיים", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost29762/"},
-  {name:"האיים הברטיים 13.8.27", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost33393/"},
-  {name:"האיים הקנרים", url:"https://tarbutu.co.il/%d7%a7%d7%a8%d7%95%d7%96%d7%99%d7%9d-%d7%9e%d7%90%d7%95%d7%a8%d7%92%d7%a0%d7%99%d7%9d-%d7%9c%d7%90%d7%99%d7%99%d7%9d-%d7%94%d7%a7%d7%a0%d7%a8%d7%99%d7%9d/"},
-  {name:"יפן 20/10/26", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost32506/"},
-  {name:"יפן וקוריאה 17/11/26", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost32029/"},
-  {name:"יפן 6/11/26", url:"https://tarbutu.co.il/%d7%a7%d7%a8%d7%95%d7%96-%d7%a1%d7%95%d7%91%d7%91-%d7%99%d7%a4%d7%9f-%d7%91%d7%aa%d7%a7%d7%95%d7%a4%d7%aa-%d7%94%d7%a9%d7%9c%d7%9b%d7%aa-3-2/"},
-  {name:"מזרח הרחוק 19/11", url:"https://tarbutu.co.il/%d7%9e%d7%96%d7%a8%d7%97-%d7%a8%d7%97%d7%95%d7%a7-%d7%98%d7%99%d7%95%d7%9c-%d7%9e%d7%a9%d7%95%d7%9c%d7%91-%d7%91%d7%a7%d7%a8%d7%95%d7%96/"},
-  {name:"מזרח הרחוק 30/12", url:"https://tarbutu.co.il/https-tarbutu-co-il-wp-admin-post-phpactioneditpost31540/"},
-];
+const TRIPS = [];
 
 let knowledgeCache = null;
 let lastScanTime = null;
+let scanState = { isScanning: false, current: 0, total: 0, currentName: '' };
 
 async function scrapeUrl(url) {
   try {
@@ -530,9 +562,21 @@ async function buildKnowledgeBase() {
 }
 
 async function scanAndSaveTrips() {
-  console.log('[Scan] Starting scan of', TRIPS.length, 'trips...');
+  const { data: dbTrips } = await supabase.from('trips_list').select('*');
+  const allTrips = dbTrips && dbTrips.length > 0
+    ? dbTrips.map(t => ({ name: t.name, url: t.url }))
+    : TRIPS;
+
+  scanState = { isScanning: true, current: 0, total: allTrips.length, currentName: '' };
+  console.log('[Scan] Starting scan of', allTrips.length, 'trips...');
+
   let scanned = 0;
-  for (const trip of TRIPS) {
+  for (let i = 0; i < allTrips.length; i++) {
+    const trip = allTrips[i];
+    scanState.current = i + 1;
+    scanState.currentName = trip.name;
+    console.log(`[Scan] ${i+1}/${allTrips.length}: ${trip.name}`);
+
     const content = await scrapeUrl(trip.url);
     if (content) {
       await supabase.from('knowledge_base').upsert([{
@@ -543,12 +587,14 @@ async function scanAndSaveTrips() {
         scanned_at: new Date().toISOString(),
       }], { onConflict: 'url' });
       scanned++;
-      console.log('[Scan] Scanned:', trip.name);
     }
-    await new Promise(r => setTimeout(r, 1000)); // 1 sec delay
+    await new Promise(r => setTimeout(r, 800));
   }
-  console.log('[Scan] Done:', scanned, 'trips scanned');
-  knowledgeCache = null; // Reset cache
+
+  scanState = { isScanning: false, current: allTrips.length, total: allTrips.length, currentName: '' };
+  lastScanTime = new Date();
+  knowledgeCache = null;
+  console.log('[Scan] Done:', scanned, '/', allTrips.length, 'trips scanned');
 }
 
 async function getKnowledge() {
@@ -663,26 +709,30 @@ app.post('/webhook/greenapi', async (req, res) => {
     
     if (body?.typeWebhook !== 'incomingMessageReceived') return;
     const msg = body.messageData;
+    
+    // רק logging - כדי לראות מה Green API שולח
+    if (msg?.typeMessage && ['imageMessage', 'documentMessage', 'videoMessage', 'audioMessage'].includes(msg.typeMessage)) {
+      console.log('[File Received]', JSON.stringify(msg, null, 2).substring(0, 500));
+    }
     const chatId = body.senderData?.chatId;
+    const isGroup = chatId?.includes('@g.us');
     const phone = normalizePhone(chatId?.replace('@c.us', '').replace('@g.us', ''));
     const senderName = body.senderData?.senderName || body.senderData?.pushname || phone;
     if (!phone) return;
+    
+    console.log(`[Webhook Green] ${isGroup ? '👥 קבוצה' : '👤 אישי'}: ${senderName}`);
 
     // טקסט רגיל
     const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
 
     // קבצים: תמונה, מסמך, אודיו, וידאו
-    const fileMsg = msg?.imageMessage || msg?.documentMessage || msg?.audioMessage || msg?.videoMessage;
-    
     let fileUrl = null, fileName = '';
-    if (fileMsg && msg.typeMessage && ['imageMessage', 'documentMessage', 'videoMessage', 'audioMessage'].includes(msg.typeMessage)) {
-      // Green API sends file data in fileMessageData
-      fileUrl = msg.fileMessageData?.downloadUrl || msg.mediaUrl || null;
-      fileName = msg.fileMessageData?.fileName || msg.mediaName || '';
-      
-      if (fileUrl) {
-        console.log(`[Webhook Green] FILE: ${fileName}, URL: ${fileUrl}`);
-      }
+    
+    // Green API sends files in fileMessageData object
+    if (msg?.fileMessageData?.downloadUrl) {
+      fileUrl = msg.fileMessageData.downloadUrl;
+      fileName = msg.fileMessageData.fileName || 'file';
+      console.log(`[Webhook Green] FILE: ${fileName}, URL: ${fileUrl}`);
     }
     
     const fileType = msg?.typeMessage || '';
@@ -699,6 +749,7 @@ app.post('/webhook/greenapi', async (req, res) => {
     
     if (fileUrl) {
       // הודעת קובץ
+      console.log('[Webhook] Adding file to messages:', { fileUrl, fileName, fileType });
       msgs.push({
         role: 'user',
         content: fileName || 'קובץ',
@@ -708,13 +759,16 @@ app.post('/webhook/greenapi', async (req, res) => {
         time: new Date().toISOString(),
         channel: 'green'
       });
+      console.log('[Webhook] Messages count after file:', msgs.length);
     }
     if (text) {
       msgs.push({ role: 'user', content: text, time: new Date().toISOString(), channel: 'green' });
     }
 
     // שמור את ההודעה תחילה (חשוב!)
-    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName };
+    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName, isGroup };
+    
+    console.log('[Webhook Save]', JSON.stringify(updates, null, 2).substring(0, 300));
 
     // שיוך אוטומטי לנציג — רק בפנייה חדשה (אין שיחה קיימת או שהיא טופלה)
     if (!existing || existing.status === 'resolved' || !existing.assigned_agent) {
@@ -727,6 +781,7 @@ app.post('/webhook/greenapi', async (req, res) => {
 
     // שמור את ההודעה של הלקוח ב-Supabase
     await upsertConversation(phone, updates);
+    console.log('[Webhook] Saved to Supabase, messages with file:', updates.messages.some(m => m.fileUrl) ? 'YES' : 'NO');
   } catch (err) {
     console.error('Webhook error:', err.message);
   }
@@ -1247,22 +1302,56 @@ app.post('/api/kb-update', async (req, res) => {
     if (supportText) {
       await supabase.from('knowledge_text').upsert([{ id: 1, content: supportText, updated_at: new Date().toISOString() }]);
     }
-    knowledgeCache = null; // Reset cache
+    // שמור טיולים ב-Supabase
+    if (trips && trips.length > 0) {
+      await supabase.from('trips_list').upsert(
+        trips.map(t => ({ url: t.url, name: t.name, added_at: t.addedAt || new Date().toISOString() })),
+        { onConflict: 'url' }
+      );
+    }
+    knowledgeCache = null;
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// טעינת רשימת טיולים מ-Supabase
+app.get('/api/trips-list', async (req, res) => {
+  try {
+    const { data: dbTrips } = await supabase.from('trips_list').select('*').order('added_at', { ascending: true });
+    const { data: scanned } = await supabase.from('knowledge_base').select('url, scanned_at');
+    const scannedUrls = new Set((scanned || []).map(s => s.url));
+    const trips = (dbTrips || []).map(t => ({ name: t.name, url: t.url, addedAt: t.added_at, scanned: scannedUrls.has(t.url) }));
+    res.json({ trips });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// מחיקת טיול מ-Supabase
+app.delete('/api/trips-list', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'חסר url' });
+    await supabase.from('trips_list').delete().eq('url', url);
+    await supabase.from('knowledge_base').delete().eq('url', url);
+    knowledgeCache = null;
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/scan-now', async (req, res) => { 
   res.json({ success: true, message: 'סריקה התחילה' });
   scanAndSaveTrips().catch(console.error);
 });
 app.get('/api/cache-status', (req, res) => { 
   res.json({ 
-    hasCache: !!knowledgeCache, 
-    isScanning: false, 
+    hasCache: !!knowledgeCache,
+    isScanning: scanState.isScanning,
+    current: scanState.current,
+    total: scanState.total,
+    currentName: scanState.currentName,
     contentLength: knowledgeCache ? knowledgeCache.length : 0,
     lastScanned: lastScanTime,
-    pagesScanned: TRIPS.length,
-    totalPages: TRIPS.length
+    pagesScanned: scanState.current,
+    totalPages: scanState.total || TRIPS.length
   }); 
 });
 app.post('/api/import-green', (req, res) => { res.json({ success: true, message: 'לא זמין' }); });
@@ -1414,8 +1503,26 @@ app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, 'admin.html'
 app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
 // ── Start ─────────────────────────────────────────────────
+async function initDB() {
+  // העבר את TRIPS הקבועים ל-Supabase אם הטבלה ריקה
+  try {
+    const { data, error } = await supabase.from('trips_list').select('url').limit(1);
+    if (!error && (!data || data.length === 0)) {
+      console.log('[Init] Seeding trips_list from static TRIPS...');
+      await supabase.from('trips_list').upsert(
+        TRIPS.map(t => ({ url: t.url, name: t.name, added_at: new Date().toISOString() })),
+        { onConflict: 'url' }
+      );
+      console.log('[Init] Seeded', TRIPS.length, 'trips');
+    }
+  } catch(e) {
+    console.log('[Init] trips_list not ready yet:', e.message);
+  }
+}
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
+  await initDB();
 });
