@@ -551,7 +551,7 @@ async function buildKnowledgeBase() {
   if (dbTrips && dbTrips.length > 0) {
     for (const trip of dbTrips) {
       kb += `\n--- ${trip.name} ---\n`;
-      kb += `קישור: ${trip.url}\n`;
+      // לא מציג קישור ללקוח
       if (trip.content) kb += `${trip.content.slice(0, 1500)}\n`;
     }
   } else {
