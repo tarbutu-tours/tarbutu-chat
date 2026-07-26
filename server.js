@@ -551,8 +551,8 @@ async function buildKnowledgeBase() {
   if (dbTrips && dbTrips.length > 0) {
     for (const trip of dbTrips) {
       kb += `\n--- ${trip.name} ---\n`;
-      // לא מציג קישור ללקוח
-      if (trip.content) kb += `${trip.content.slice(0, 1500)}\n`;
+      kb += `קישור: ${trip.url}\n`;
+      if (trip.content) kb += `${trip.content.slice(0, 500)}\n`;
     }
   } else {
     // Use static list
@@ -623,48 +623,23 @@ async function getAIResponse(phone, userMessage, systemPrompt) {
   
   // Get knowledge base (max 2000 chars to avoid token limit)
   const kb = await getKnowledge();
-  // מגבלת 12000 תווים — מספיק ל-8 טיולים מפורטים
-  const kbShort = kb.slice(0, 12000);
+  const kbShort = kb.slice(0, 2000);
   const system = systemPrompt || `אתה עוזר של תרבותו — חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים. שמך "עוזר תרבותו".
 
 ## אישיות:
 - חם, נלהב, מקצועי
-- ענה בעברית, קצר וממוקד
+- ענה בעברית, קצר וממוקד — לא יותר מ-3 משפטים
 - שאלה אחת בכל פעם!
-- אל תמציא מידע שלא קיים במאגר
-- אף פעם אל תאמר "תוך שעה" — אמור תמיד "נציג יחזור אליך"
-- אל תציג קישורים ללקוח בשום מצב!
+- אל תמציא מידע
 
 ## זרימת שיחה מכירות 🚢:
-שאלה 1: "שלום וברוכים הבאים לתרבותו! 🚢 במה אוכל לעזור? אתה מעוניין בקרוז בים או שייט נהר?"
-
-שאלה 2א (קרוז בים): "מעולה! לאיזה אזור?"
-- 🌏 אסיה — יפן / מזרח רחוק
-- 🦘 אוסטרליה וניו זילנד
-- 🏝️ ים תיכון — מערב / מזרח / קנרים
-- 🧊 צפון — פיורדים / איסלנד / שפיצברגן / הכף הצפוני
-- 🌿 בלטיות
-- 🌎 דרום אמריקה / טראנס אטלנטי
-- 🏴 האיים הבריטיים
-
-שאלה 2ב (שייט נהר): "מעולה! איזה נהר מעניין אותך?"
-- ריין / דנובה / רון וסון / דורדון / סיין / דאורו
-
-שאלה 3: הצג טיולים רלוונטיים מהמאגר לפי הבחירה. אם אין במאגר — אמור "נציג יחזור אליך עם אפשרויות"
-
-שאלה 4: "מתי תרצה לצאת? (חודש/עונה מועדפת)"
-
-שאלה 5: "מה שמך המלא (שם + שם משפחה)?"
-
-שאלה 6: "מה מספר הטלפון שלך?"
-
-סיום: "תודה [שם]! נציג יחזור אליך בהקדם 😊"
-
-## כללים חשובים:
-- מחיר → "נציג יחזור אליך עם הצעה אישית"
-- הרכב (זוג/משפחה/קבוצה) → "נציג יחזור אליך"
-- מה כלול → "נציג יחזור אליך עם כל הפרטים"
-- אל תמציא תאריכים או מחירים!
+1. שאל: "באיזה יעד או טיול אתה מעוניין?"
+2. הצג טיול רלוונטי מהמאגר
+3. שאל: "מה שמך המלא (שם + שם משפחה)?"
+4. שאל: "מה מספר הטלפון שלך?"
+5. שאל: "כמה נוסעים ומה התאריך המועדף?"
+6. סכם: "תודה [שם]! נציג יחזור אליך תוך שעה עם הצעת מחיר 😊"
+לגבי מחיר — אמור: "המחיר תלוי בתאריך וסוג הקבין, נציג יכין לך הצעה אישית"
 
 ## זרימת שיחה שירות לקוחות 🎧:
 1. שאל: "במה אוכל לעזור?"
@@ -672,7 +647,7 @@ async function getAIResponse(phone, userMessage, systemPrompt) {
 3. אם צריך נציג — שאל: "מה שמך המלא?"
 4. שאל: "מה מספר הטלפון שלך?"
 5. שאל: "תאר בקצרה את נושא הפנייה"
-6. סכם: "תודה [שם]! נציג מומחה יחזור אליך 🙏"
+6. סכם: "תודה [שם]! נציג מומחה יחזור אליך תוך שעה 🙏"
 
 ## טיולים זמינים:
 ${kbShort}`;
@@ -763,15 +738,47 @@ app.post('/webhook/greenapi', async (req, res) => {
 
     // קבצים: תמונה, מסמך, אודיו, וידאו
     let fileUrl = null, fileName = '';
-    
-    // Green API sends files in fileMessageData object
-    if (msg?.fileMessageData?.downloadUrl) {
-      fileUrl = msg.fileMessageData.downloadUrl;
-      fileName = msg.fileMessageData.fileName || 'file';
-      console.log(`[Webhook Green] FILE: ${fileName}, URL: ${fileUrl}`);
-    }
-    
     const fileType = msg?.typeMessage || '';
+    
+    // Green API — תמיכה בכל סוגי הקבצים
+    if (['imageMessage','documentMessage','videoMessage','audioMessage'].includes(fileType)) {
+      // נסה fileMessageData קודם
+      if (msg?.fileMessageData?.downloadUrl) {
+        fileUrl = msg.fileMessageData.downloadUrl;
+        fileName = msg.fileMessageData.fileName || msg.fileMessageData.caption || fileType;
+      }
+      // נסה imageMessageData
+      else if (msg?.imageMessageData?.downloadUrl) {
+        fileUrl = msg.imageMessageData.downloadUrl;
+        fileName = msg.imageMessageData.caption || 'image.jpg';
+      }
+      // נסה documentMessageData
+      else if (msg?.documentMessageData?.downloadUrl) {
+        fileUrl = msg.documentMessageData.downloadUrl;
+        fileName = msg.documentMessageData.fileName || 'document';
+      }
+      // נסה videoMessageData
+      else if (msg?.videoMessageData?.downloadUrl) {
+        fileUrl = msg.videoMessageData.downloadUrl;
+        fileName = msg.videoMessageData.caption || 'video.mp4';
+      }
+      // נסה audioMessageData
+      else if (msg?.audioMessageData?.downloadUrl) {
+        fileUrl = msg.audioMessageData.downloadUrl;
+        fileName = 'audio.ogg';
+      }
+      // נסה downloadUrl ישירות
+      else if (msg?.downloadUrl) {
+        fileUrl = msg.downloadUrl;
+        fileName = msg.fileName || msg.caption || fileType;
+      }
+      if (fileUrl) {
+        console.log(`[Webhook Green] FILE TYPE: ${fileType}, NAME: ${fileName}, URL: ${fileUrl}`);
+      } else {
+        console.log(`[Webhook Green] FILE RECEIVED but no downloadUrl found. Type: ${fileType}`);
+        console.log('[Webhook Green] Full msg:', JSON.stringify(msg, null, 2).substring(0, 800));
+      }
+    }
 
     if (!text && !fileUrl) return;
 
