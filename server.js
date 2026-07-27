@@ -50,6 +50,12 @@ const BASE_URL           = 'https://tarbutu-chat-production.up.railway.app';
 const MONDAY_TOKEN       = process.env.MONDAY_TOKEN || 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjU5MzczOTM4NCwiYWFpIjoxMSwidWlkIjo5MzgyNjY2NiwiaWFkIjoiMjAyNS0xMi0wNFQwNzozMzo0OS4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MzIwNTc1NDEsInJnbiI6ImV1YzEifQ.KCw6QItc0geq0SeIhVvHJ8sJ3JprATzmlX-ANuUSe_E';
 const MONDAY_BOARD_ID    = '5054953529'; // שירות לקוחות
 
+// ── נציגי שירות לקוחות — פותחים ITEM ב-Monday ──────────
+const SERVICE_AGENTS = new Set([
+  'agent-1783346115877', // מירב אברהמוב
+  'agent-1784701113063', // ערן יום טוב
+]);
+
 // ── מיפוי נציגים: שם ב-Pipedrive → מזהה נציג ב-Supabase ──
 const AGENT_MAP = {
   'AVI': 'agent-1783347049009',
@@ -1165,8 +1171,55 @@ app.post('/api/wa-conversations/:phone/send', async (req, res) => {
 });
 
 app.post('/api/wa-conversations/:phone/status', async (req, res) => {
-  try { await upsertConversation(decodeURIComponent(req.params.phone), { status: req.body.status }); res.json({ success: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const phone = decodeURIComponent(req.params.phone);
+    const { status } = req.body;
+    await upsertConversation(phone, { status });
+
+    // סינכרון Admin → Monday כשסטטוס = done
+    if (status === 'done') {
+      try {
+        const conv = await getConversation(phone);
+        if (conv?.monday_item_id) {
+          const colValues = JSON.stringify({ color_mkw5dvjb: { label: 'טופל' } });
+          await axios.post('https://api.monday.com/v2', {
+            query: `mutation {
+              change_column_value(
+                board_id: ${MONDAY_BOARD_ID},
+                item_id: ${conv.monday_item_id},
+                column_id: "color_mkw5dvjb",
+                value: ${JSON.stringify(colValues)}
+              ) { id }
+            }`
+          }, { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } });
+          console.log('[Monday] Status → טופל for item:', conv.monday_item_id);
+        }
+      } catch(mondayErr) { console.error('[Monday] Sync error:', mondayErr.message); }
+    }
+
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Monday Webhook — סינכרון Monday → Admin ──────────────
+app.post('/api/monday-webhook', async (req, res) => {
+  try {
+    if (req.body?.challenge) return res.json({ challenge: req.body.challenge });
+    const event = req.body?.event;
+    if (event?.type === 'change_column_value') {
+      const itemId = String(event.pulseId);
+      const label  = event.value?.label?.text || '';
+      if (label === 'טופל' || label === 'Done') {
+        const { data: conv } = await supabase.from('conversations')
+          .select('phone').eq('monday_item_id', itemId).single();
+        if (conv?.phone) {
+          await supabase.from('conversations').update({ status: 'done' }).eq('phone', conv.phone);
+          console.log('[Monday→Admin] Status synced to done:', conv.phone);
+        }
+      }
+    }
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/wa-conversations/:phone/note', async (req, res) => {
@@ -1203,8 +1256,60 @@ app.post('/api/wa-conversations/:phone/tag', async (req, res) => {
 });
 
 app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
-  try { await upsertConversation(decodeURIComponent(req.params.phone), { assigned_agent: req.body.agentId }); res.json({ success: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const phone = decodeURIComponent(req.params.phone);
+    const { agentId } = req.body;
+    await upsertConversation(phone, { assigned_agent: agentId });
+
+    // אם הוקצה לנציג שירות — פתח ITEM ב-Monday
+    if (SERVICE_AGENTS.has(agentId)) {
+      try {
+        const conv = await getConversation(phone);
+        // פתח רק אם אין ITEM קיים
+        if (!conv?.monday_item_id) {
+          const agentData = await getAgentById(agentId);
+          const msgs = conv?.messages || [];
+          const lastUserMsg = msgs.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+          const description = msgs
+            .filter(m => m.role === 'user')
+            .map(m => m.content)
+            .join(' | ')
+            .slice(0, 500);
+
+          const cleanName = (conv?.contact_name || 'לקוח').substring(0, 50);
+          const colValues = {
+            'phone_mkw59e3v': { phone: phone.replace('+',''), countryShortName: 'IL' },
+            'long_text_mkw5q0e2': { text: description },
+            'text_mkzmby8z': 'Admin',
+            'color_mkw5dvjb': { label: 'חדשה' },
+            'person': { personsAndTeams: [] },
+          };
+
+          const query = `mutation {
+            create_item(
+              board_id: ${MONDAY_BOARD_ID},
+              item_name: "${cleanName}",
+              column_values: ${JSON.stringify(JSON.stringify(colValues))}
+            ) { id }
+          }`;
+
+          const mondayRes = await axios.post('https://api.monday.com/v2',
+            { query },
+            { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+          );
+          const mondayItemId = mondayRes.data?.data?.create_item?.id;
+          if (mondayItemId) {
+            await upsertConversation(phone, { monday_item_id: String(mondayItemId) });
+            console.log('[Monday] Item created for service agent:', agentData?.name, '| Item:', mondayItemId);
+          }
+        }
+      } catch(mondayErr) {
+        console.error('[Monday] Error creating item:', mondayErr.message);
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/wa-conversations/:phone/transfer', async (req, res) => {
@@ -1490,6 +1595,16 @@ app.get('/api/status', async (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname)));
+app.get('/api/monday-groups', async (req, res) => {
+  try {
+    const r = await axios.post('https://api.monday.com/v2',
+      { query: `{ boards(ids: [${MONDAY_BOARD_ID}]) { groups { id title } } }` },
+      { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    res.json(r.data.data.boards[0].groups);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/monday-columns', async (req, res) => {
   try {
     const r = await axios.post('https://api.monday.com/v2',
