@@ -50,6 +50,15 @@ const BASE_URL           = 'https://tarbutu-chat-production.up.railway.app';
 const MONDAY_TOKEN       = process.env.MONDAY_TOKEN || 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjU5MzczOTM4NCwiYWFpIjoxMSwidWlkIjo5MzgyNjY2NiwiaWFkIjoiMjAyNS0xMi0wNFQwNzozMzo0OS4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MzIwNTc1NDEsInJnbiI6ImV1YzEifQ.KCw6QItc0geq0SeIhVvHJ8sJ3JprATzmlX-ANuUSe_E';
 const MONDAY_BOARD_ID    = '5054953529'; // שירות לקוחות
 
+// ── Monday Groups ────────────────────────────────────────
+const MONDAY_GROUP_NEW     = 'topics';          // חדשה
+const MONDAY_GROUP_ACTIVE  = 'group_mkwcbk8q'; // בטיפול
+const MONDAY_GROUP_DONE    = 'group_mkwcrv9c'; // טופלה
+
+// ── מייל שירות לקוחות ────────────────────────────────────
+const SERVICE_EMAIL        = 'service-tarbutu@rimon-tours.co.il';
+const SKIP_EMAIL_SENDER    = 'telekol@telekol.co.il';
+
 // ── נציגי שירות לקוחות — פותחים ITEM ב-Monday ──────────
 const SERVICE_AGENTS = new Set([
   'agent-1783346115877', // מירב אברהמוב
@@ -1288,6 +1297,7 @@ app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
           const query = `mutation {
             create_item(
               board_id: ${MONDAY_BOARD_ID},
+              group_id: "${MONDAY_GROUP_NEW}",
               item_name: "${cleanName}",
               column_values: ${JSON.stringify(JSON.stringify(colValues))}
             ) { id }
@@ -1595,6 +1605,64 @@ app.get('/api/status', async (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname)));
+// ── Outlook Email Webhook — פתיחת ITEM ב-Monday ──────────
+app.post('/api/email-webhook', async (req, res) => {
+  res.sendStatus(200);
+  try {
+    const { from, subject, body, to } = req.body;
+    if (!from) return;
+
+    // Make שולח from, subject, body כstrings ישירים
+    const senderEmail = (from || '').toLowerCase().trim();
+    
+    // דלג על מיילים מ-telekol
+    if (senderEmail.includes('telekol')) {
+      console.log('[Email Webhook] Skipping telekol email from:', senderEmail);
+      return;
+    }
+
+    // רק מיילים שנשלחו ל-service-tarbutu
+    const toEmail = (to || '').toLowerCase().trim();
+    if (!toEmail.includes('service-tarbutu')) {
+      console.log('[Email Webhook] Not service email, skipping');
+      return;
+    }
+
+    const emailSubject = subject || 'פנייה חדשה';
+    const emailBody = (body || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 500);
+    const senderName = senderEmail.split('@')[0] || 'Guest';
+
+    console.log('[Email Webhook] New email from:', senderEmail, '| Subject:', emailSubject);
+
+    // צור ITEM ב-Monday
+    const colValues = {
+      'long_text_mkw5q0e2': { text: `נושא: ${emailSubject}\n\n${emailBody}` },
+      'text_mkzmby8z': 'מייל',
+      'color_mkw5dvjb': { label: 'חדשה' },
+      'email_mkw5q9z3': { email: senderEmail, text: senderEmail },
+    };
+
+    const cleanName = senderName.substring(0, 50);
+    const query = `mutation {
+      create_item(
+        board_id: ${MONDAY_BOARD_ID},
+        group_id: "${MONDAY_GROUP_NEW}",
+        item_name: "${cleanName}",
+        column_values: ${JSON.stringify(JSON.stringify(colValues))}
+      ) { id }
+    }`;
+
+    const mondayRes = await axios.post('https://api.monday.com/v2',
+      { query },
+      { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    const itemId = mondayRes.data?.data?.create_item?.id;
+    console.log('[Email Webhook] Monday item created:', itemId, 'for:', senderEmail);
+  } catch(e) {
+    console.error('[Email Webhook] Error:', e.message);
+  }
+});
+
 app.get('/api/monday-groups', async (req, res) => {
   try {
     const r = await axios.post('https://api.monday.com/v2',
