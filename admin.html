@@ -116,6 +116,12 @@ select.avail-select option{color:#333}
 .agent-info-block{flex:1}
 .agent-name-row{font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px}
 .agent-sub{font-size:12px;color:#6c757d}
+.agent-stats{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;font-size:12px;color:#495057}
+.agent-stats span{display:inline-flex;align-items:center;gap:4px}
+.agent-stats i{font-size:14px;color:#adb5bd}
+.role-select{padding:6px 10px;border:1px solid #dee2e6;border-radius:6px;background:#fff;font-size:13px;font-family:inherit;color:#212529;cursor:pointer}
+.role-select:hover{border-color:#1a6fa8}
+.role-select:focus{outline:2px solid #1a6fa8;outline-offset:1px}
 .kb-tabs{display:flex;gap:3px;margin-bottom:1rem}
 .kb-tab{padding:7px 14px;border-radius:8px;border:1.5px solid var(--border);background:#fff;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:5px}
 .kb-tab:hover{border-color:var(--p);color:var(--p)}.kb-tab.active{background:var(--p);color:#fff;border-color:var(--p)}
@@ -534,14 +540,19 @@ function initApp() {
   document.getElementById('avail-select').value = currentAgent.availability || 'online';
   updateAvailDot(currentAgent.availability || 'online');
   
-  // הצג כפתורי מחיקה רק ל-Admin
+  // מחיקה — מנהל מערכת בלבד
   const isAdmin = currentAgent.role === 'admin';
+  const isSuper = currentAgent.role === 'supervisor';
+  const canOversee = isAdmin || isSuper;   // רואים את כל הנציגים והנתונים
+
   document.getElementById('delete-conv-btn').style.display = isAdmin ? 'flex' : 'none';
   document.getElementById('delete-all-btn').style.display = isAdmin ? 'flex' : 'none';
-  
-  if (isAdmin) {
+
+  if (canOversee) {
     document.getElementById('tab-agents').style.display = 'flex';
     document.getElementById('tab-reports').style.display = 'flex';
+  }
+  if (isAdmin) {
     document.getElementById('tab-knowledge').style.display = 'flex';
   }
   loadAllConversations();
@@ -974,16 +985,79 @@ async function loadAgents() {
           <button class="btn btn-sm btn-danger" onclick="approveAgent('${a.id}','reject')"><i class="ti ti-x"></i> דחה</button>
         </div>`).join('');
     }
-    actEl.innerHTML = active.map(a=>`
-      <div class="agent-card">
-        <div class="agent-avatar">${a.name[0]}</div>
-        <div class="agent-info-block">
-          <div class="agent-name-row">${a.name} <span class="badge ${a.role==='admin'?'badge-ok':'badge-warn'}">${a.role==='admin'?'מנהל':'נציג'}</span></div>
-          <div class="agent-sub">${a.email} · ${a.availability==='online'?'🟢 זמין':a.availability==='busy'?'🟡 עסוק':'⚪ לא זמין'}</div>
-        </div>
-        ${a.id!==currentAgent.id?'<button class="btn btn-sm btn-danger" onclick="deleteAgent(\''+a.id+'\')"><i class="ti ti-trash"></i></button>':'<span class="badge badge-ok">אתה</span>'}
-      </div>`).join('');
+    // כמות ההודעות והשיחות לכל נציג — מנהל וסופרוויזר בלבד
+    var stats = {};
+    try {
+      var sr = await fetch(API+'/api/agents/stats', { headers:{'x-auth-token':authToken} });
+      if (sr.ok) {
+        var sd = await sr.json();
+        (sd.agents||[]).forEach(function(s){ stats[s.id] = s; });
+      }
+    } catch(e) {}
+
+    var isAdmin = currentAgent.role === 'admin';
+
+    actEl.innerHTML = active.map(function(a){
+      var s = stats[a.id] || { messages:0, conversations:0, open:0, lastActivity:null };
+      var last = s.lastActivity
+        ? new Date(s.lastActivity).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'}) +
+          ' ' + new Date(s.lastActivity).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})
+        : 'אין פעילות';
+
+      var roleBadge = a.role==='admin' ? '<span class="badge badge-ok">מנהל מערכת</span>'
+                    : a.role==='supervisor' ? '<span class="badge badge-ok">סופרוויזר</span>'
+                    : '<span class="badge badge-warn">נציג</span>';
+
+      // בורר הרשאה — רק מנהל מערכת, ולא על עצמו
+      var roleControl = '';
+      if (isAdmin && a.id !== currentAgent.id) {
+        roleControl =
+          '<select class="role-select" onchange="changeRole(\''+a.id+'\', this.value, this)">' +
+            '<option value="admin"'      + (a.role==='admin'?' selected':'')      + '>מנהל מערכת</option>' +
+            '<option value="supervisor"' + (a.role==='supervisor'?' selected':'') + '>סופרוויזר</option>' +
+            '<option value="agent"'      + (a.role==='agent'?' selected':'')      + '>נציג</option>' +
+          '</select>';
+      }
+
+      var removeBtn = (isAdmin && a.id !== currentAgent.id)
+        ? '<button class="btn btn-sm btn-danger" onclick="deleteAgent(\''+a.id+'\')"><i class="ti ti-trash"></i></button>'
+        : (a.id === currentAgent.id ? '<span class="badge badge-ok">אתה</span>' : '');
+
+      return '<div class="agent-card">' +
+        '<div class="agent-avatar">'+a.name[0]+'</div>' +
+        '<div class="agent-info-block">' +
+          '<div class="agent-name-row">'+a.name+' '+roleBadge+'</div>' +
+          '<div class="agent-sub">'+a.email+' · ' +
+            (a.availability==='online'?'🟢 זמין':a.availability==='busy'?'🟡 עסוק':'⚪ לא זמין') +
+          '</div>' +
+          '<div class="agent-stats">' +
+            '<span title="הודעות שהנציג שלח"><i class="ti ti-message-2"></i> '+s.messages+' הודעות</span>' +
+            '<span title="שיחות שהוקצו לנציג"><i class="ti ti-inbox"></i> '+s.conversations+' שיחות'+(s.open?' ('+s.open+' פתוחות)':'')+'</span>' +
+            '<span title="הודעה אחרונה"><i class="ti ti-clock"></i> '+last+'</span>' +
+          '</div>' +
+        '</div>' +
+        roleControl + removeBtn +
+      '</div>';
+    }).join('');
   } catch(e) {}
+}
+
+async function changeRole(id, role, el) {
+  var prev = el.getAttribute('data-prev') || '';
+  try {
+    var r = await fetch(API+'/api/agents/'+id+'/role', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-auth-token':authToken},
+      body: JSON.stringify({role})
+    });
+    var d = await r.json();
+    if (!r.ok) { showToast(d.error || 'שינוי ההרשאה נכשל'); loadAgents(); return; }
+    showToast('ההרשאה עודכנה');
+    loadAgents();
+  } catch(e) {
+    showToast('שינוי ההרשאה נכשל');
+    loadAgents();
+  }
 }
 
 async function approveAgent(id, action) {
