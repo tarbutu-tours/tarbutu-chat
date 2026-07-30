@@ -270,6 +270,39 @@ async function deleteAgentById(id) {
   if (error) throw error;
 }
 
+// ── הרשאות לפי תפקיד ──────────────────────────────────────
+// admin      = מנהל מערכת — הכל, כולל שינוי הרשאות ומחיקת נציגים
+// supervisor = סופרוויזר  — רואה את כל הנציגים והנתונים, בלי שינוי הרשאות
+// agent      = נציג       — רק השיחות שלו
+
+const ROLES = ['admin', 'supervisor', 'agent'];
+const ROLE_LABELS = { admin: 'מנהל מערכת', supervisor: 'סופרוויזר', agent: 'נציג' };
+
+async function getAgentByToken(token) {
+  if (!token) return null;
+  if (token === 'admin-token-tarbutu') {
+    return { id: 'admin-1', name: 'מחלקת אופרציה', role: 'admin', status: 'approved' };
+  }
+  try {
+    const { data } = await supabase.from('agents').select('*').eq('token', token).single();
+    return data || null;
+  } catch (e) { return null; }
+}
+
+// מחזיר את הנציג אם התפקיד שלו מורשה, אחרת שולח 403 ומחזיר null
+async function requireRole(req, res, allowed) {
+  const agent = await getAgentByToken(req.headers['x-auth-token']);
+  if (!agent) {
+    res.status(401).json({ error: 'נדרשת התחברות' });
+    return null;
+  }
+  if (!allowed.includes(agent.role)) {
+    res.status(403).json({ error: 'אין לך הרשאה לפעולה זו' });
+    return null;
+  }
+  return agent;
+}
+
 // ── Green API ─────────────────────────────────────────────
 
 async function sendGreenAPI(phone, message) {
@@ -1076,6 +1109,9 @@ app.get('/api/agents', async (req, res) => {
 
 app.post('/api/agents/:id/approve', async (req, res) => {
   try {
+    const me = await requireRole(req, res, ['admin', 'supervisor']);
+    if (!me) return;
+
     const action = req.body.action;
     const agent = await getAgentById(req.params.id);
     if (!agent) return res.status(404).json({ error: 'לא נמצא' });
@@ -1097,9 +1133,105 @@ app.post('/api/agents/:id/approve', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// שינוי תפקיד — מנהל מערכת בלבד
+app.post('/api/agents/:id/role', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin']);
+    if (!me) return;
+
+    const { role } = req.body;
+    if (!ROLES.includes(role)) {
+      return res.status(400).json({ error: 'תפקיד לא מוכר' });
+    }
+
+    const target = await getAgentById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'נציג לא נמצא' });
+
+    // מנהל לא יכול להוריד לעצמו הרשאות ולנעול את המערכת
+    if (target.id === me.id && role !== 'admin') {
+      return res.status(400).json({ error: 'אי אפשר לשנות את ההרשאה של עצמך' });
+    }
+
+    // חייב להישאר לפחות מנהל מערכת אחד
+    if (target.role === 'admin' && role !== 'admin') {
+      const all = await getAllAgents();
+      const admins = all.filter(a => a.role === 'admin' && a.status === 'approved');
+      if (admins.length <= 1) {
+        return res.status(400).json({ error: 'חייב להישאר מנהל מערכת אחד לפחות' });
+      }
+    }
+
+    await updateAgent(req.params.id, { role });
+    console.log(`[Roles] ${me.name} שינה את ${target.name} ל-${ROLE_LABELS[role]}`);
+    res.json({ success: true, role });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// כמות ההודעות והשיחות לכל נציג — מנהל וסופרוויזר
+app.get('/api/agents/stats', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor']);
+    if (!me) return;
+
+    const [agents, convs] = await Promise.all([
+      getAllAgents(),
+      getAllConversations()
+    ]);
+
+    const byId = {};
+    const byName = {};
+    agents.forEach(a => {
+      byId[a.id] = {
+        id: a.id,
+        name: a.name,
+        email: a.email,
+        role: a.role,
+        roleLabel: ROLE_LABELS[a.role] || a.role,
+        availability: a.availability,
+        status: a.status,
+        conversations: 0,   // שיחות שמשויכות אליו
+        open: 0,            // מתוכן עדיין פתוחות
+        messages: 0,        // הודעות שהוא עצמו שלח
+        lastActivity: null
+      };
+      byName[a.name] = a.id;
+    });
+
+    convs.forEach(c => {
+      const owner = byId[c.assigned_agent];
+      if (owner) {
+        owner.conversations++;
+        if (c.status !== 'resolved') owner.open++;
+      }
+      const msgs = Array.isArray(c.messages) ? c.messages : [];
+      msgs.forEach(m => {
+        if (m.role !== 'agent' && m.role !== 'note') return;
+        const id = byName[m.agentName];
+        if (!id) return;
+        const rec = byId[id];
+        rec.messages++;
+        if (m.time && (!rec.lastActivity || m.time > rec.lastActivity)) {
+          rec.lastActivity = m.time;
+        }
+      });
+    });
+
+    const stats = Object.values(byId).sort((a, b) => b.messages - a.messages);
+    res.json({ agents: stats, totalConversations: convs.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// מחיקת נציג — מנהל מערכת בלבד
 app.delete('/api/agents/:id', async (req, res) => {
-  try { await deleteAgentById(req.params.id); res.json({ success: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const me = await requireRole(req, res, ['admin']);
+    if (!me) return;
+    if (req.params.id === me.id) {
+      return res.status(400).json({ error: 'אי אפשר למחוק את עצמך' });
+    }
+    await deleteAgentById(req.params.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── WA Conversations ──────────────────────────────────────
