@@ -116,6 +116,7 @@ select.avail-select option{color:#333}
 .agent-info-block{flex:1}
 .agent-name-row{font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px}
 .agent-sub{font-size:12px;color:#6c757d}
+.badge-danger{background:#fdecea;color:#b42318}
 .agent-stats{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;font-size:12px;color:#495057}
 .agent-stats span{display:inline-flex;align-items:center;gap:4px}
 .agent-stats i{font-size:14px;color:#adb5bd}
@@ -906,7 +907,7 @@ async function showTransferModal(phone) {
     var r = await fetch(API+'/api/agents', { headers:{'x-auth-token':authToken} });
     var agentsList = await r.json();
     var sel = document.getElementById('transfer-agent-select');
-    sel.innerHTML = agentsList.filter(a=>a.id!==currentAgent.id&&a.status==='approved').map(a=>'<option value="'+a.id+'">'+a.name+'</option>').join('');
+    sel.innerHTML = agentsList.filter(a=>a.id!==currentAgent.id&&a.status!=='pending').map(a=>'<option value="'+a.id+'">'+a.name+'</option>').join('');
   } catch(e) {}
   showModal('transfer-modal');
 }
@@ -969,7 +970,9 @@ async function loadAgents() {
     var r = await fetch(API+'/api/agents', { headers:{'x-auth-token':authToken} });
     var list = await r.json();
     var pending = list.filter(a=>a.status==='pending');
-    var active = list.filter(a=>a.status==='approved');
+    // כל מי שאינו ממתין נחשב פעיל — כולל נציגים ותיקים שאין להם סטטוס כלל.
+    // בלי זה נציג עם סטטוס חריג נעלם משתי הרשימות ואי אפשר לאתר אותו.
+    var active = list.filter(a=>a.status!=='pending');
     var pendEl = document.getElementById('pending-agents');
     var actEl = document.getElementById('active-agents');
     if (!pending.length) { pendEl.innerHTML='<div style="color:#adb5bd;font-size:13px">אין בקשות ממתינות ✅</div>'; }
@@ -1008,6 +1011,11 @@ async function loadAgents() {
                     : a.role==='supervisor' ? '<span class="badge badge-ok">סופרוויזר</span>'
                     : '<span class="badge badge-warn">נציג</span>';
 
+      // סימון סטטוס חריג — שלא ייעלם בשקט
+      var statusBadge = (a.status && a.status !== 'approved')
+        ? '<span class="badge badge-danger" title="סטטוס לא תקין — הנציג לא יוכל להתחבר">סטטוס: '+a.status+'</span>'
+        : (!a.status ? '<span class="badge badge-danger" title="אין סטטוס — הנציג לא יוכל להתחבר">ללא סטטוס</span>' : '');
+
       // בורר הרשאה — רק מנהל מערכת, ולא על עצמו
       var roleControl = '';
       if (isAdmin && a.id !== currentAgent.id) {
@@ -1026,7 +1034,7 @@ async function loadAgents() {
       return '<div class="agent-card">' +
         '<div class="agent-avatar">'+a.name[0]+'</div>' +
         '<div class="agent-info-block">' +
-          '<div class="agent-name-row">'+a.name+' '+roleBadge+'</div>' +
+          '<div class="agent-name-row">'+a.name+' '+roleBadge+' '+statusBadge+'</div>' +
           '<div class="agent-sub">'+a.email+' · ' +
             (a.availability==='online'?'🟢 זמין':a.availability==='busy'?'🟡 עסוק':'⚪ לא זמין') +
           '</div>' +
