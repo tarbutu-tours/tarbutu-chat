@@ -303,6 +303,91 @@ async function requireRole(req, res, allowed) {
   return agent;
 }
 
+// ── התראות על הודעה נכנסת ─────────────────────────────────
+// 1. מייל לנציג שהשיחה משויכת אליו
+// 2. ITEM חדש ב-Monday לכל הודעה שמגיעה לנציג שירות (מירב / ערן)
+
+async function emailAgentNewMessage(agent, phone, text, contactName) {
+  if (!agent?.email) return;
+  const who = contactName || phone;
+  const preview = (text || '📎 קובץ').slice(0, 300);
+
+  await sendEmail(agent.email, `הודעה חדשה מ-${who}`, `
+    <div dir="rtl" style="font-family:Arial,sans-serif;padding:20px;max-width:520px">
+      <h2 style="margin:0 0 4px;font-size:18px;font-weight:500">הודעה חדשה ממתינה לך</h2>
+      <p style="margin:0 0 16px;color:#6c757d;font-size:13px">${who} · ${phone}</p>
+      <div style="background:#f8f9fa;border-right:3px solid #1a6fa8;padding:12px 14px;border-radius:4px;font-size:14px;line-height:1.7">
+        ${preview.replace(/</g,'&lt;').replace(/\n/g,'<br>')}
+      </div>
+      <a href="${BASE_URL}/admin" style="display:inline-block;margin-top:18px;background:#1a6fa8;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;font-size:14px">פתח את השיחה</a>
+    </div>
+  `);
+  console.log('[Notify] Email sent to', agent.email, 'for', phone);
+}
+
+async function createServiceMondayItem(phone, text, contactName, agentName) {
+  const cleanName = (contactName || phone || 'לקוח').substring(0, 50);
+  const colValues = {
+    'phone_mkw59e3v': { phone: String(phone).replace('+',''), countryShortName: 'IL' },
+    'long_text_mkw5q0e2': { text: (text || '📎 קובץ').slice(0, 500) },
+    'text_mkzmby8z': 'וואטסאפ',
+    'color_mkw5dvjb': { label: 'חדשה' },
+  };
+
+  const query = `mutation {
+    create_item(
+      board_id: ${MONDAY_BOARD_ID},
+      group_id: "${MONDAY_GROUP_NEW}",
+      item_name: ${JSON.stringify(cleanName)},
+      column_values: ${JSON.stringify(JSON.stringify(colValues))}
+    ) { id }
+  }`;
+
+  const r = await axios.post('https://api.monday.com/v2',
+    { query },
+    { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+  );
+  const itemId = r.data?.data?.create_item?.id;
+  console.log('[Monday] Item', itemId, 'created for', agentName, '|', phone);
+  return itemId;
+}
+
+// נקראת אחרי שההודעה כבר נשמרה. לא זורקת — התראה שנכשלת לא תפיל הודעה.
+async function notifyIncomingMessage(phone, text, conv) {
+  try {
+    const agentId = conv?.assigned_agent;
+    if (!agentId) {
+      console.log('[Notify] No assigned agent for', phone, '— skipping');
+      return;
+    }
+
+    const agent = await getAgentById(agentId);
+    const contactName = conv?.contact_name;
+
+    // מייל — בכל הודעה נכנסת
+    await emailAgentNewMessage(agent, phone, text, contactName)
+      .catch(e => console.error('[Notify] Email failed:', e.message));
+
+    // ITEM ב-Monday — רק אם עדיין אין אחד לשיחה הזו
+    if (!SERVICE_AGENTS.has(agentId)) return;
+
+    if (conv?.monday_item_id) {
+      console.log('[Notify] Item', conv.monday_item_id, 'already exists for', phone, '— skipping');
+      return;
+    }
+
+    const itemId = await createServiceMondayItem(phone, text, contactName, agent?.name)
+      .catch(e => { console.error('[Notify] Monday item failed:', e.message); return null; });
+
+    // שמירת המזהה — זה מה שמאפשר את סנכרון הסטטוס בשני הכיוונים
+    if (itemId) {
+      await upsertConversation(phone, { monday_item_id: String(itemId) });
+    }
+  } catch (e) {
+    console.error('[Notify] Error:', e.message);
+  }
+}
+
 // ── Green API ─────────────────────────────────────────────
 
 async function sendGreenAPI(phone, message) {
@@ -873,6 +958,10 @@ app.post('/webhook/greenapi', async (req, res) => {
     // שמור את ההודעה של הלקוח ב-Supabase
     await upsertConversation(phone, updates);
     console.log('[Webhook] Saved to Supabase, messages with file:', updates.messages.some(m => m.fileUrl) ? 'YES' : 'NO');
+
+    // התראות: מייל לנציג + ITEM ב-Monday לנציגי שירות
+    const savedConv = await getConversation(phone).catch(() => null);
+    notifyIncomingMessage(phone, text, savedConv || { ...existing, ...updates }).catch(console.error);
   } catch (err) {
     console.error('Webhook error:', err.message);
   }
@@ -911,7 +1000,11 @@ app.post('/webhook/whatsapp', async (req, res) => {
     }
 
     await upsertConversation(from, updates);
-    
+
+    // התראות: מייל לנציג + ITEM ב-Monday לנציגי שירות
+    const savedTwilioConv = await getConversation(from).catch(() => null);
+    notifyIncomingMessage(from, text, savedTwilioConv || { ...existing, ...updates }).catch(console.error);
+
     // תשובה ריקה ל-Twilio
     res.type('text/xml');
     res.send('<Response></Response>');
@@ -1350,12 +1443,19 @@ app.post('/api/monday-webhook', async (req, res) => {
     if (event?.type === 'change_column_value') {
       const itemId = String(event.pulseId);
       const label  = event.value?.label?.text || '';
-      if (label === 'טופל' || label === 'Done') {
+
+      // מיפוי הסטטוס במונדיי לסטטוס באדמין
+      let newStatus = null;
+      if (label === 'טופל' || label === 'טופלה' || label === 'Done') newStatus = 'done';
+      else if (label === 'בטיפול') newStatus = 'active';
+      else if (label === 'חדשה' || label === 'חדש') newStatus = 'new';
+
+      if (newStatus) {
         const { data: conv } = await supabase.from('conversations')
           .select('phone').eq('monday_item_id', itemId).single();
         if (conv?.phone) {
-          await supabase.from('conversations').update({ status: 'done' }).eq('phone', conv.phone);
-          console.log('[Monday→Admin] Status synced to done:', conv.phone);
+          await supabase.from('conversations').update({ status: newStatus }).eq('phone', conv.phone);
+          console.log('[Monday→Admin]', label, '→', newStatus, '|', conv.phone);
         }
       }
     }
@@ -1401,6 +1501,15 @@ app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
     const phone = decodeURIComponent(req.params.phone);
     const { agentId } = req.body;
     await upsertConversation(phone, { assigned_agent: agentId });
+
+    // הודע לנציג שהשיחה הועברה אליו
+    try {
+      const conv = await getConversation(phone);
+      const agent = await getAgentById(agentId);
+      const lastMsg = (conv?.messages || []).filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+      emailAgentNewMessage(agent, phone, lastMsg, conv?.contact_name)
+        .catch(e => console.error('[Assign] Email failed:', e.message));
+    } catch(e) { console.error('[Assign] Notify error:', e.message); }
 
     // אם הוקצה לנציג שירות — פתח ITEM ב-Monday
     if (SERVICE_AGENTS.has(agentId)) {
