@@ -1967,6 +1967,7 @@ app.post('/webhook/missed-call', async (req, res) => {
 });
 
 app.get('/admin', (req, res) => { res.sendFile(path.join(__dirname, 'admin.html')); });
+app.get('/preview', (req, res) => { res.sendFile(path.join(__dirname, 'preview.html')); });
 app.get('/', (req, res) => { res.json({ status: 'Tarbutu Chat ✅' }); });
 
 // ── Start ─────────────────────────────────────────────────
