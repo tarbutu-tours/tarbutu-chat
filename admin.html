@@ -149,6 +149,9 @@ select.avail-select option{color:#333}
 .proc-bar.show{display:flex}
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.75rem;margin-bottom:1rem}
 .stat-card{background:#fff;border-radius:10px;padding:1rem;box-shadow:0 2px 8px rgba(0,0,0,.07);text-align:center}
+.stat-card.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s}
+.stat-card.clickable:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.13)}
+.stat-card.clickable:active{transform:translateY(0)}
 .stat-num{font-size:1.8rem;font-weight:700;color:var(--p)}.stat-lbl{font-size:11px;color:#6c757d;margin-top:2px}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:none;align-items:center;justify-content:center;padding:16px}
 .modal-overlay.show{display:flex}
@@ -593,9 +596,40 @@ function showChannel(ch) {
 
 function setFilter(f, btn) {
   currentFilter = f;
+  currentChannelFilter = null;   // סינון מהקוביות מתאפס בבחירה ידנית
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   renderConvList();
+}
+
+// סינון לפי ערוץ — מגיע מהקוביות בדוחות, אין לו כפתור קבוע
+var currentChannelFilter = null;
+
+// לחיצה על קובייה בדוחות: מעבר לשיחות + סינון + הודעה מה מוצג
+function drillDown(kind) {
+  var channels = { green:'Green API 📱', twilio:'Twilio ☎️' };
+  var labels = { all:'כל השיחות', new:'שיחות חדשות 🔴', open:'שיחות בטיפול 🟡',
+                 awaiting:'שיחות בהמתנה ⏳', resolved:'שיחות שטופלו ✅' };
+
+  if (channels[kind]) {
+    currentChannelFilter = kind;
+    currentFilter = 'all';
+  } else {
+    currentChannelFilter = null;
+    currentFilter = kind;
+  }
+
+  showPage('control');
+
+  // סמן את הצ'יפ המתאים אם קיים, אחרת נקה סימון
+  document.querySelectorAll('.filter-btn').forEach(function(b){
+    b.classList.remove('active');
+    var onclick = b.getAttribute('onclick') || '';
+    if (!channels[kind] && onclick.indexOf("'"+kind+"'") !== -1) b.classList.add('active');
+  });
+
+  renderConvList();
+  showToast('מציג: ' + (channels[kind] || labels[kind] || kind));
 }
 
 var currentGroupFilter = 'all';
@@ -674,9 +708,14 @@ function renderConvList() {
       if (c.phone && c.phone.startsWith('tc_')) return false;
       if (currentFilter === 'new') return c.status === 'new';
       if (currentFilter === 'open') return c.status === 'open';
+      if (currentFilter === 'awaiting') return c.status === 'awaiting';
       if (currentFilter === 'resolved') return c.status === 'resolved';
       if (currentFilter === 'mine') return c.isMyConv;
       return true;
+    }).filter(function(c) {
+      // סינון לפי ערוץ — מגיע מהקוביות בדוחות
+      if (!currentChannelFilter) return true;
+      return (c.channel || c.source || '') === currentChannelFilter;
     }).filter(function(c) {
       // סנן לפי קבוצה
       if (currentGroupFilter === 'group') return c.isGroup === true;
@@ -1088,13 +1127,13 @@ async function loadReports() {
     
     // סטטיסטיקות
     document.getElementById('report-stats').innerHTML = `
-      <div class="stat-card"><div class="stat-num">${d.total}</div><div class="stat-lbl">סה"כ שיחות</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--danger)">${d.byStatus.new||0}</div><div class="stat-lbl">🔴 חדשות</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--warn)">${d.byStatus.open||0}</div><div class="stat-lbl">🟡 בטיפול</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:#f0c040">${d.byStatus.awaiting||0}</div><div class="stat-lbl">⏳ בהמתנה</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--ok)">${d.byStatus.resolved||0}</div><div class="stat-lbl">✅ טופלו</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--wa)">${d.byChannel.green||0}</div><div class="stat-lbl">📱 Green</div></div>
-      <div class="stat-card"><div class="stat-num">${d.byChannel.twilio||0}</div><div class="stat-lbl">☎️ Twilio</div></div>`;
+      <div class="stat-card clickable" onclick="drillDown('all')" title="הצג את כל השיחות"><div class="stat-num">${d.total}</div><div class="stat-lbl">סה"כ שיחות</div></div>
+      <div class="stat-card clickable" onclick="drillDown('new')" title="הצג שיחות חדשות"><div class="stat-num" style="color:var(--danger)">${d.byStatus.new||0}</div><div class="stat-lbl">🔴 חדשות</div></div>
+      <div class="stat-card clickable" onclick="drillDown('open')" title="הצג שיחות בטיפול"><div class="stat-num" style="color:var(--warn)">${d.byStatus.open||0}</div><div class="stat-lbl">🟡 בטיפול</div></div>
+      <div class="stat-card clickable" onclick="drillDown('awaiting')" title="הצג שיחות בהמתנה"><div class="stat-num" style="color:#f0c040">${d.byStatus.awaiting||0}</div><div class="stat-lbl">⏳ בהמתנה</div></div>
+      <div class="stat-card clickable" onclick="drillDown('resolved')" title="הצג שיחות שטופלו"><div class="stat-num" style="color:var(--ok)">${d.byStatus.resolved||0}</div><div class="stat-lbl">✅ טופלו</div></div>
+      <div class="stat-card clickable" onclick="drillDown('green')" title="הצג שיחות Green API"><div class="stat-num" style="color:var(--wa)">${d.byChannel.green||0}</div><div class="stat-lbl">📱 Green</div></div>
+      <div class="stat-card clickable" onclick="drillDown('twilio')" title="הצג שיחות Twilio"><div class="stat-num">${d.byChannel.twilio||0}</div><div class="stat-lbl">☎️ Twilio</div></div>`;
     
     // ביצוע נציגים
     document.getElementById('agent-stats').innerHTML = (d.agentStats||[]).length === 0 ? '<div style="color:#adb5bd;font-size:13px">אין נתונים</div>' :
