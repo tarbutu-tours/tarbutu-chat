@@ -785,11 +785,40 @@ async function getAIResponse(phone, userMessage, systemPrompt) {
 ## טיולים זמינים:
 ${kbShort}`;
 
+  // Anthropic מקבל רק user/assistant עם תוכן טקסט לא ריק, והרשימה חייבת להתחיל ב-user.
+  // ההיסטוריה השמורה מכילה גם הודעות נציג, הערות פנימיות והודעות קבצים — כל אחת מהן
+  // מחזירה 400 ומפילה את כל הבקשה.
+  function sanitizeForAnthropic(msgs) {
+    const clean = [];
+    for (const m of msgs) {
+      const role = m.role === 'user' ? 'user'
+                 : (m.role === 'assistant' || m.role === 'bot') ? 'assistant'
+                 : null;                       // agent / note / system — לא נשלחים
+      if (!role) continue;
+
+      const content = typeof m.content === 'string' ? m.content.trim() : '';
+      if (!content) continue;                  // הודעת קובץ בלי טקסט
+
+      // מיזוג הודעות רצופות מאותו תפקיד — Anthropic מעדיף החלפה
+      if (clean.length && clean[clean.length - 1].role === role) {
+        clean[clean.length - 1].content += '\n' + content;
+      } else {
+        clean.push({ role, content });
+      }
+    }
+    // הרשימה חייבת להתחיל בהודעת user
+    while (clean.length && clean[0].role !== 'user') clean.shift();
+    return clean;
+  }
+
+  const messages = sanitizeForAnthropic(updatedHistory).slice(-20);
+  if (!messages.length) messages.push({ role: 'user', content: userMessage });
+
   const response = await axios.post('https://api.anthropic.com/v1/messages', {
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 500,
     system,
-    messages: updatedHistory.slice(-20),
+    messages,
   }, {
     headers: {
       'x-api-key': process.env.ANTHROPIC_API_KEY,
@@ -1675,9 +1704,15 @@ app.post('/api/chat', async (req, res) => {
     const phoneId = phone ? normalizePhone(phone) : (sessionId || 'web-' + Date.now());
     const reply = await getAIResponse(phoneId, message, systemPrompt);
     res.json({ reply, message: reply }); // support both d.reply and d.message
-  } catch (err) { 
-    console.error('[Chat Error]', err.message, err.stack);
-    res.status(500).json({ error: err.message }); 
+  } catch (err) {
+    // axios מסתיר את הסיבה בתוך response.data — בלי זה רואים רק "status code 400"
+    const upstream = err.response?.data;
+    console.error('[Chat Error]', err.message);
+    if (upstream) console.error('[Chat Error] פירוט מה-API:', JSON.stringify(upstream));
+    res.status(500).json({
+      error: err.message,
+      detail: upstream?.error?.message || upstream?.error?.type || null
+    });
   }
 });
 
@@ -1989,8 +2024,154 @@ async function initDB() {
 }
 
 const PORT = process.env.PORT || 3000;
+// ── דוח פניות פעמיים ביום ─────────────────────────────────
+// נשלח ב-09:00 וב-16:00 שעון ישראל למנהלי מערכת וסופרוויזרים.
+
+const REPORT_HOURS = [9, 16];
+
+function waitingSince(conv) {
+  const msgs = Array.isArray(conv.messages) ? conv.messages : [];
+  const lastCustomer = [...msgs].reverse().find(m => m.role === 'user');
+  const t = lastCustomer?.time || conv.updated_at || conv.created_at;
+  if (!t) return null;
+  const hours = (Date.now() - new Date(t).getTime()) / 36e5;
+  return isNaN(hours) ? null : hours;
+}
+
+function formatWait(h) {
+  if (h == null) return '';
+  if (h < 1) return 'לפני פחות משעה';
+  if (h < 24) return `לפני ${Math.floor(h)} שעות`;
+  const d = Math.floor(h / 24);
+  return `לפני ${d} ${d === 1 ? 'יום' : 'ימים'}`;
+}
+
+function buildReportHtml(newConvs, openConvs, agentsById) {
+  const row = (c) => {
+    const agent = agentsById[c.assigned_agent]?.name || '<span style="color:#b42318">לא משויך</span>';
+    const wait = waitingSince(c);
+    const urgent = wait != null && wait >= 24;
+    const preview = (c.last_message || '').replace(/</g,'&lt;').slice(0, 60);
+    return `<tr style="border-bottom:1px solid #eee">
+      <td style="padding:8px 10px;font-size:13px">${c.contact_name || c.phone}</td>
+      <td style="padding:8px 10px;font-size:13px;color:#5a6a72">${preview}</td>
+      <td style="padding:8px 10px;font-size:13px">${agent}</td>
+      <td style="padding:8px 10px;font-size:12px;color:${urgent ? '#b42318;font-weight:600' : '#5a6a72'}">${formatWait(wait)}${urgent ? ' ⚠️' : ''}</td>
+    </tr>`;
+  };
+
+  const table = (title, list, color) => {
+    if (!list.length) return `<h3 style="font-size:15px;margin:22px 0 6px;color:${color}">${title} — אין</h3>`;
+    return `
+      <h3 style="font-size:15px;margin:22px 0 8px;color:${color}">${title} (${list.length})</h3>
+      <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:6px;overflow:hidden">
+        <tr style="background:#f4f6f8">
+          <th style="padding:8px 10px;text-align:right;font-size:12px;color:#5a6a72;font-weight:600">לקוח</th>
+          <th style="padding:8px 10px;text-align:right;font-size:12px;color:#5a6a72;font-weight:600">הודעה אחרונה</th>
+          <th style="padding:8px 10px;text-align:right;font-size:12px;color:#5a6a72;font-weight:600">נציג</th>
+          <th style="padding:8px 10px;text-align:right;font-size:12px;color:#5a6a72;font-weight:600">ממתין</th>
+        </tr>
+        ${list.map(row).join('')}
+      </table>`;
+  };
+
+  const stuck = [...newConvs, ...openConvs].filter(c => {
+    const w = waitingSince(c);
+    return w != null && w >= 24;
+  }).length;
+
+  const now = new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', dateStyle: 'short', timeStyle: 'short' });
+
+  return `<div dir="rtl" style="font-family:Arial,sans-serif;background:#f4f6f8;padding:24px">
+    <div style="max-width:680px;margin:0 auto;background:#fff;border-radius:10px;padding:24px">
+      <h2 style="margin:0 0 4px;font-size:19px;color:#0d4f6c">דוח פניות — תרבותו</h2>
+      <p style="margin:0 0 18px;color:#5a6a72;font-size:13px">${now}</p>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="flex:1;min-width:120px;background:#fdecea;border-radius:8px;padding:14px;text-align:center">
+          <div style="font-size:26px;font-weight:700;color:#b42318">${newConvs.length}</div>
+          <div style="font-size:12px;color:#7a4a45">חדשות</div>
+        </div>
+        <div style="flex:1;min-width:120px;background:#fef9e7;border-radius:8px;padding:14px;text-align:center">
+          <div style="font-size:26px;font-weight:700;color:#a05c00">${openConvs.length}</div>
+          <div style="font-size:12px;color:#7a5a2a">בטיפול</div>
+        </div>
+        ${stuck ? `<div style="flex:1;min-width:120px;background:#fbe9e7;border-radius:8px;padding:14px;text-align:center">
+          <div style="font-size:26px;font-weight:700;color:#b42318">${stuck}</div>
+          <div style="font-size:12px;color:#7a4a45">מעל 24 שעות ⚠️</div>
+        </div>` : ''}
+      </div>
+
+      ${table('פניות חדשות', newConvs, '#b42318')}
+      ${table('פניות בטיפול', openConvs, '#a05c00')}
+
+      <a href="${BASE_URL}/admin" style="display:inline-block;margin-top:22px;background:#1a6fa8;color:#fff;padding:10px 22px;text-decoration:none;border-radius:6px;font-size:14px">פתח את מרכז הניהול</a>
+    </div>
+  </div>`;
+}
+
+async function sendConversationsReport() {
+  try {
+    const [convs, agents] = await Promise.all([getAllConversations(), getAllAgents()]);
+
+    const agentsById = {};
+    agents.forEach(a => { agentsById[a.id] = a; });
+
+    const relevant = convs.filter(c => !(c.phone || '').startsWith('tc_'));
+    const sortByWait = (a, b) => (waitingSince(b) ?? 0) - (waitingSince(a) ?? 0);
+    const newConvs  = relevant.filter(c => c.status === 'new').sort(sortByWait);
+    const openConvs = relevant.filter(c => c.status === 'open' || c.status === 'awaiting').sort(sortByWait);
+
+    const recipients = agents.filter(a =>
+      (a.role === 'admin' || a.role === 'supervisor') &&
+      a.status === 'approved' && a.email
+    );
+
+    if (!recipients.length) {
+      console.log('[Report] אין נמענים (מנהל/סופרוויזר עם מייל) — מדלג');
+      return;
+    }
+
+    const subject = `דוח פניות · ${newConvs.length} חדשות · ${openConvs.length} בטיפול`;
+    const html = buildReportHtml(newConvs, openConvs, agentsById);
+
+    for (const r of recipients) {
+      await sendEmail(r.email, subject, html)
+        .catch(e => console.error('[Report] נכשל ל-' + r.email + ':', e.message));
+    }
+    console.log(`[Report] נשלח ל-${recipients.length} נמענים | ${newConvs.length} חדשות, ${openConvs.length} בטיפול`);
+  } catch (e) {
+    console.error('[Report] שגיאה:', e.message);
+  }
+}
+
+// בדיקה כל דקה. נשמר סימון כדי שלא יישלח פעמיים באותה שעה.
+let _lastReportKey = null;
+function startReportScheduler() {
+  setInterval(() => {
+    const israelNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+    const hour = israelNow.getHours();
+    const key = israelNow.toDateString() + '-' + hour;
+
+    if (REPORT_HOURS.includes(hour) && israelNow.getMinutes() === 0 && _lastReportKey !== key) {
+      _lastReportKey = key;
+      sendConversationsReport();
+    }
+  }, 60 * 1000);
+  console.log(`✅ דוח פניות מתוזמן לשעות ${REPORT_HOURS.join(', ')} (שעון ישראל)`);
+}
+
+// שליחה ידנית לבדיקה — מנהל וסופרוויזר
+app.post('/api/send-report', async (req, res) => {
+  const me = await requireRole(req, res, ['admin', 'supervisor']);
+  if (!me) return;
+  await sendConversationsReport();
+  res.json({ success: true, message: 'הדוח נשלח' });
+});
+
 app.listen(PORT, async () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
   await initDB();
+  startReportScheduler();
 });
