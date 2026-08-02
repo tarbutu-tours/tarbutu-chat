@@ -372,6 +372,12 @@ select.avail-select option{color:#333}
 <!-- REPORTS -->
 <div class="page" id="page-reports">
   <div class="panel-page active">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">
+      <div style="font-size:12px;color:#6c757d">
+        <i class="ti ti-mail"></i> דוח נשלח אוטומטית ב-09:00 וב-16:00 למנהלים ולסופרוויזרים
+      </div>
+      <button class="btn btn-sm" onclick="sendReportNow(this)"><i class="ti ti-send"></i> שלח דוח עכשיו</button>
+    </div>
     <div class="stats-grid" id="report-stats"></div>
     <div class="card">
       <div class="card-header"><div class="card-title"><i class="ti ti-users"></i> ביצועי נציגים</div></div>
@@ -605,9 +611,25 @@ function setFilter(f, btn) {
 // סינון לפי ערוץ — מגיע מהקוביות בדוחות, אין לו כפתור קבוע
 var currentChannelFilter = null;
 
+async function sendReportNow(btn) {
+  var orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader spin"></i> שולח...';
+  try {
+    var r = await fetch(API+'/api/send-report', {
+      method:'POST', headers:{'x-auth-token':authToken}
+    });
+    var d = await r.json();
+    showToast(r.ok ? 'הדוח נשלח למנהלים ולסופרוויזרים ✅' : (d.error || 'השליחה נכשלה'));
+  } catch(e) {
+    showToast('השליחה נכשלה');
+  }
+  btn.disabled = false;
+  btn.innerHTML = orig;
+}
+
 // לחיצה על קובייה בדוחות: מעבר לשיחות + סינון + הודעה מה מוצג
-function drillDown(kind) {
-  var channels = { green:'Green API 📱', twilio:'Twilio ☎️' };
+function drillDown(kind) {  var channels = { green:'Green API 📱', twilio:'Twilio ☎️' };
   var labels = { all:'כל השיחות', new:'שיחות חדשות 🔴', open:'שיחות בטיפול 🟡',
                  awaiting:'שיחות בהמתנה ⏳', resolved:'שיחות שטופלו ✅' };
 
