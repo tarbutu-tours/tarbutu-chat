@@ -28,7 +28,7 @@
     #tb-chat-root {
       position: fixed;
       bottom: 24px;
-      left: 24px;
+      right: 24px;
       z-index: 99999;
       direction: rtl;
     }
@@ -262,8 +262,8 @@
     }
 
     @media (max-width: 420px) {
-      #tb-window { width: 100vw; height: 100vh; border-radius: 0; bottom: 0; left: 0; position: fixed; }
-      #tb-chat-root { bottom: 0; left: 0; }
+      #tb-window { width: 100vw; height: 100vh; border-radius: 0; bottom: 0; right: 0; position: fixed; }
+      #tb-chat-root { bottom: 0; right: 0; }
     }
   `;
   document.head.appendChild(style);
@@ -383,7 +383,7 @@
 
       if (!r.ok || (!d.reply && !d.message)) {
         // הלקוח רואה הודעה מנומסת. הסיבה האמיתית נרשמת בקונסול לאבחון.
-        console.error('[Tarbutu Chat] שגיאת שרת:', r.status, d.error || d);
+        console.error('[Tarbutu Chat] שגיאת שרת:', r.status, d.detail || d.error || d);
         setTyping(false);
         appendMsg('bot', 'מצטער, יש תקלה רגעית. אפשר לנסות שוב, או לפנות אלינו בוואטסאפ ונחזור אליך.');
         return;
