@@ -119,8 +119,9 @@
     #tb-msgs::-webkit-scrollbar-thumb { background: #dee2e6; border-radius: 99px; }
 
     .tb-msg { display: flex; flex-direction: column; }
-    .tb-msg.tb-bot { align-items: flex-end; }
-    .tb-msg.tb-user { align-items: flex-start; }
+    /* בעברית: הבוט מימין, הלקוח משמאל — כמו בוואטסאפ */
+    .tb-msg.tb-bot { align-items: flex-start; }
+    .tb-msg.tb-user { align-items: flex-end; }
 
     .tb-bbl {
       max-width: 82%;
@@ -134,13 +135,13 @@
     .tb-msg.tb-bot .tb-bbl {
       background: #fff;
       color: #222;
-      border-bottom-right-radius: 4px;
+      border-bottom-left-radius: 4px;
       box-shadow: 0 1px 4px rgba(0,0,0,0.08);
     }
     .tb-msg.tb-user .tb-bbl {
       background: #1a6fa8;
       color: #fff;
-      border-bottom-left-radius: 4px;
+      border-bottom-right-radius: 4px;
     }
     .tb-time {
       font-size: 10px;
@@ -176,6 +177,24 @@
     @keyframes tb-bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
 
     /* ── Input ── */
+    /* כפתורי בחירה — שלושת השלבים הראשונים */
+    .tb-opts { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 6px; align-items: flex-start; }
+    .tb-opt {
+      background: #fff;
+      border: 1.5px solid #1a6fa8;
+      color: #1a6fa8;
+      padding: 10px 16px;
+      border-radius: 18px;
+      font-size: 13.5px;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: right;
+      max-width: 88%;
+      transition: background .15s, color .15s;
+    }
+    .tb-opt:hover { background: #1a6fa8; color: #fff; }
+    .tb-opt:active { transform: scale(.98); }
+
     #tb-input-area {
       padding: 10px 12px;
       background: #fff;
@@ -287,7 +306,7 @@
 
       <div id="tb-msgs">
         <div class="tb-msg tb-bot">
-          <div class="tb-bbl">שמח לעזור! מה מביא אותך אלינו?<br><br>🚢 מתכנן הפלגה חדשה<br>💬 יש לי שאלה על טיול שהזמנתי</div>
+          <div class="tb-bbl">שמח לעזור! מה מביא אותך אלינו?</div>
           <div class="tb-time">עכשיו</div>
         </div>
       </div>
@@ -357,16 +376,98 @@
     if (show) msgs.scrollTop = msgs.scrollHeight;
   }
 
+  // ── שלבי הכפתורים ──────────────────────────────
+  // שלושת השלבים הראשונים נבחרים בלחיצה. אחריהם — מלל חופשי.
+  const CRUISE_DESTS = [
+    'יפן והמזרח הרחוק', 'אוסטרליה וניו זילנד', 'הים התיכון והקנריים',
+    'פיורדים, איסלנד והצפון', 'הים הבלטי', 'דרום אמריקה',
+    'האיים הבריטיים', 'ניו אינגלנד ומזרח קנדה', 'האוקיינוס ההודי'
+  ];
+  const RIVER_DESTS = [
+    'הריין', 'הדנובה', 'הרון והסון', 'הדורדון', 'הסיין', 'הדאורו'
+  ];
+
+  let stage = 'track';   // track → type → dest → free
+
+  function showOptions(opts) {
+    const wrap = document.createElement('div');
+    wrap.className = 'tb-opts';
+    opts.forEach(function (label) {
+      const b = document.createElement('button');
+      b.className = 'tb-opt';
+      b.type = 'button';
+      b.textContent = label;
+      b.addEventListener('click', function () { chooseOption(label, wrap); });
+      wrap.appendChild(b);
+    });
+    msgs.appendChild(wrap);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function clearOptions() {
+    msgs.querySelectorAll('.tb-opts').forEach(function (el) { el.remove(); });
+  }
+
+  function chooseOption(label, wrap) {
+    if (wrap) wrap.remove();
+    clearOptions();
+
+    // הבחירה נשארת על המסך כהודעה של הלקוח
+    appendMsg('user', label);
+    history.push({ role: 'user', content: label });
+
+    if (stage === 'track') {
+      if (label.indexOf('הזמנתי') !== -1) {
+        stage = 'free';
+        input.placeholder = 'איך אפשר לעזור?';
+        botSay('בשמחה. ספר לי בקצרה במה מדובר, ואשתדל לעזור.');
+      } else {
+        stage = 'type';
+        botSay('נהדר! מה מעניין אותך?');
+        setTimeout(function () { showOptions(['🚢 קרוז בים', '🛶 שייט נהרות באירופה']); }, 350);
+      }
+      return;
+    }
+
+    if (stage === 'type') {
+      stage = 'dest';
+      const isRiver = label.indexOf('נהרות') !== -1;
+      botSay('לאיזה יעד?');
+      setTimeout(function () { showOptions(isRiver ? RIVER_DESTS : CRUISE_DESTS); }, 350);
+      return;
+    }
+
+    if (stage === 'dest') {
+      stage = 'free';
+      input.placeholder = 'כתוב הודעה...';
+      sendToBot(label);   // מכאן הבוט מציג את הטיולים של היעד
+      return;
+    }
+  }
+
+  function botSay(text) {
+    appendMsg('bot', text);
+    history.push({ role: 'assistant', content: text });
+  }
+
   // ── שליחת הודעה ────────────────────────────────
   async function send() {
     const text = input.value.trim();
     if (!text || isTyping) return;
     input.value = '';
     input.style.height = 'auto';
+    clearOptions();
 
     appendMsg('user', text);
     history.push({ role: 'user', content: text });
+    await sendToBot(text, true);
+  }
 
+  // שולח לשרת. skipEcho=true כשההודעה כבר הוצגה על המסך.
+  async function sendToBot(text, skipEcho) {
+    if (!skipEcho) {
+      history.push({ role: 'user', content: text });
+    }
     setTyping(true);
     try {
       const r = await fetch(API + '/api/chat', {
@@ -376,7 +477,7 @@
           message: text,
           sessionId: SESSION_KEY,
           history: history.slice(-20),
-          chatType: 'sales',
+          chatType: stage === 'free' ? 'auto' : 'sales',
         }),
       });
       const d = await r.json();
@@ -401,6 +502,8 @@
   }
 
   // ── פתיחה/סגירה ────────────────────────────────
+  let optionsShown = false;
+
   function openChat() {
     isOpen = true;
     win.classList.remove('tb-hidden');
@@ -408,6 +511,14 @@
     unread = 0;
     notif.classList.remove('tb-show');
     setTimeout(() => input.focus(), 300);
+
+    // כפתורי הפתיחה — פעם אחת בלבד
+    if (!optionsShown && stage === 'track') {
+      optionsShown = true;
+      setTimeout(function () {
+        showOptions(['🚢 מתכנן הפלגה חדשה', '💬 יש לי שאלה על טיול שהזמנתי']);
+      }, 400);
+    }
   }
 
   function closeChat() {
