@@ -891,13 +891,20 @@ async function scanAndSaveTrips() {
     const content = await scrapeUrl(trip.url);
     if (content) {
       const cls = classifyTrip(trip.name, content);
+
+      // שיוך שנבחר ידנית באדמין גובר על הזיהוי האוטומטי
+      const { data: prev } = await supabase.from('knowledge_base')
+        .select('category, destination, manual_dest').eq('url', trip.url).maybeSingle();
+      const keepManual = prev?.manual_dest && prev?.destination;
+
       await supabase.from('knowledge_base').upsert([{
         name: trip.name,
         url: trip.url,
         content,
         type: 'trip',
-        category: cls.category,
-        destination: cls.destination,
+        category:    keepManual ? prev.category    : cls.category,
+        destination: keepManual ? prev.destination : cls.destination,
+        manual_dest: prev?.manual_dest || false,
         scanned_at: new Date().toISOString(),
       }], { onConflict: 'url' });
       console.log(`[Scan]   → ${cls.category}/${cls.destination || 'ללא יעד'}`);
@@ -2043,11 +2050,28 @@ app.post('/api/trip-classify', async (req, res) => {
   try {
     const me = await requireRole(req, res, ['admin', 'supervisor']);
     if (!me) return;
-    const { url, category, destination } = req.body;
+    const { url, category, destination, manual } = req.body;
     if (!url) return res.status(400).json({ error: 'חסר קישור' });
-    await supabase.from('knowledge_base')
-      .update({ category: category || null, destination: destination || null })
-      .eq('url', url);
+
+    const { data: existing } = await supabase.from('knowledge_base')
+      .select('url').eq('url', url).maybeSingle();
+
+    const fields = {
+      category: category || null,
+      destination: destination || null,
+      manual_dest: manual ? true : undefined,
+    };
+    Object.keys(fields).forEach(k => fields[k] === undefined && delete fields[k]);
+
+    if (existing) {
+      await supabase.from('knowledge_base').update(fields).eq('url', url);
+    } else {
+      // הטיול עוד לא נסרק — שומרים שורה כדי שהשיוך לא יאבד
+      const { data: t } = await supabase.from('trips_list').select('name').eq('url', url).maybeSingle();
+      await supabase.from('knowledge_base').upsert([{
+        url, name: t?.name || url, type: 'trip', content: '', ...fields
+      }], { onConflict: 'url' });
+    }
     knowledgeCache = null;
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2056,9 +2080,37 @@ app.post('/api/trip-classify', async (req, res) => {
 app.get('/api/trips-list', async (req, res) => {
   try {
     const { data: dbTrips } = await supabase.from('trips_list').select('*').order('added_at', { ascending: true });
-    const { data: scanned } = await supabase.from('knowledge_base').select('url, scanned_at');
-    const scannedUrls = new Set((scanned || []).map(s => s.url));
-    const trips = (dbTrips || []).map(t => ({ name: t.name, url: t.url, addedAt: t.added_at, scanned: scannedUrls.has(t.url) }));
+    const { data: scanned } = await supabase.from('knowledge_base')
+      .select('url, name, scanned_at, category, destination').eq('type', 'trip');
+
+    const scannedByUrl = {};
+    (scanned || []).forEach(s => { scannedByUrl[s.url] = s; });
+
+    const seen = new Set();
+    const trips = (dbTrips || []).map(t => {
+      seen.add(t.url);
+      const sc = scannedByUrl[t.url];
+      return {
+        name: t.name, url: t.url, addedAt: t.added_at,
+        scanned: !!sc,
+        category: sc?.category || null,
+        destination: sc?.destination || null,
+        destinationLabel: sc?.destination ? destLabel(sc.category || 'cruise', sc.destination) : null,
+      };
+    });
+
+    // טיולים שנסרקו אך אינם ברשימה — אחרת הם נעלמים מהאדמין למרות שהבוט מכיר אותם
+    (scanned || []).forEach(sc => {
+      if (seen.has(sc.url)) return;
+      trips.push({
+        name: sc.name || sc.url, url: sc.url, addedAt: sc.scanned_at,
+        scanned: true, orphan: true,
+        category: sc.category || null,
+        destination: sc.destination || null,
+        destinationLabel: sc.destination ? destLabel(sc.category || 'cruise', sc.destination) : null,
+      });
+    });
+
     res.json({ trips });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
