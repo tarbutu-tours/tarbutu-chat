@@ -325,7 +325,36 @@ async function emailAgentNewMessage(agent, phone, text, contactName) {
   console.log('[Notify] Email sent to', agent.email, 'for', phone);
 }
 
-async function createServiceMondayItem(phone, text, contactName, agentName) {
+// מוצא את מזהה המשתמש במונדיי לפי כתובת המייל שלו.
+// כך אין צורך לקודד מספרי משתמשים בקוד — מספיק שהמייל בטבלת הנציגים
+// תואם למייל שאיתו הנציג רשום במונדיי.
+const _mondayUserCache = {};
+
+async function getMondayUserIdByEmail(email) {
+  if (!email) return null;
+  const key = email.toLowerCase().trim();
+  if (_mondayUserCache[key] !== undefined) return _mondayUserCache[key];
+
+  try {
+    const query = `query { users(emails: ["${key}"]) { id name email } }`;
+    const r = await axios.post('https://api.monday.com/v2',
+      { query },
+      { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+    );
+    const user = r.data?.data?.users?.[0];
+    const id = user?.id ? Number(user.id) : null;
+    _mondayUserCache[key] = id;
+    if (id) console.log('[Monday] User', user.name, '=', id, '(' + key + ')');
+    else console.warn('[Monday] לא נמצא משתמש עם המייל', key);
+    return id;
+  } catch (e) {
+    console.error('[Monday] שגיאה בחיפוש משתמש:', e.message);
+    _mondayUserCache[key] = null;
+    return null;
+  }
+}
+
+async function createServiceMondayItem(phone, text, contactName, agentName, agentEmail) {
   const cleanName = (contactName || phone || 'לקוח').substring(0, 50);
   const colValues = {
     'phone_mkw59e3v': { phone: String(phone).replace('+',''), countryShortName: 'IL' },
@@ -333,6 +362,14 @@ async function createServiceMondayItem(phone, text, contactName, agentName) {
     'text_mkzmby8z': 'וואטסאפ',
     'color_mkw5dvjb': { label: 'חדשה' },
   };
+
+  // "נציג מטפל" — לפי המייל של הנציג
+  const mondayUserId = await getMondayUserIdByEmail(agentEmail);
+  if (mondayUserId) {
+    colValues['multiple_person_mkw5rbj0'] = {
+      personsAndTeams: [{ id: mondayUserId, kind: 'person' }]
+    };
+  }
 
   const query = `mutation {
     create_item(
@@ -376,7 +413,7 @@ async function notifyIncomingMessage(phone, text, conv) {
       return;
     }
 
-    const itemId = await createServiceMondayItem(phone, text, contactName, agent?.name)
+    const itemId = await createServiceMondayItem(phone, text, contactName, agent?.name, agent?.email)
       .catch(e => { console.error('[Notify] Monday item failed:', e.message); return null; });
 
     // שמירת המזהה — זה מה שמאפשר את סנכרון הסטטוס בשני הכיוונים
@@ -1439,12 +1476,14 @@ app.post('/api/wa-conversations/:phone/status', async (req, res) => {
     const { status } = req.body;
     await upsertConversation(phone, { status });
 
-    // סינכרון Admin → Monday כשסטטוס = done
-    if (status === 'done') {
+    // סינכרון Admin → Monday. האדמין שולח resolved/open/new — לא done.
+    const STATUS_TO_MONDAY = { resolved: 'טופלה', open: 'בטיפול', new: 'חדשה', awaiting: 'בטיפול' };
+    const mondayLabel = STATUS_TO_MONDAY[status];
+    if (mondayLabel) {
       try {
         const conv = await getConversation(phone);
         if (conv?.monday_item_id) {
-          const colValues = JSON.stringify({ color_mkw5dvjb: { label: 'טופל' } });
+          const colValues = JSON.stringify({ color_mkw5dvjb: { label: mondayLabel } });
           await axios.post('https://api.monday.com/v2', {
             query: `mutation {
               change_column_value(
@@ -1455,7 +1494,7 @@ app.post('/api/wa-conversations/:phone/status', async (req, res) => {
               ) { id }
             }`
           }, { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } });
-          console.log('[Monday] Status → טופל for item:', conv.monday_item_id);
+          console.log('[Admin→Monday]', status, '→', mondayLabel, '| item', conv.monday_item_id);
         }
       } catch(mondayErr) { console.error('[Monday] Sync error:', mondayErr.message); }
     }
@@ -1473,10 +1512,11 @@ app.post('/api/monday-webhook', async (req, res) => {
       const itemId = String(event.pulseId);
       const label  = event.value?.label?.text || '';
 
-      // מיפוי הסטטוס במונדיי לסטטוס באדמין
+      // מיפוי הסטטוס במונדיי לסטטוס באדמין.
+      // הערכים חייבים להיות בדיוק אלה שהאדמין מכיר: new / open / awaiting / resolved
       let newStatus = null;
-      if (label === 'טופל' || label === 'טופלה' || label === 'Done') newStatus = 'done';
-      else if (label === 'בטיפול') newStatus = 'active';
+      if (label === 'טופל' || label === 'טופלה' || label === 'Done') newStatus = 'resolved';
+      else if (label === 'בטיפול') newStatus = 'open';
       else if (label === 'חדשה' || label === 'חדש') newStatus = 'new';
 
       if (newStatus) {
@@ -1556,13 +1596,21 @@ app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
             .slice(0, 500);
 
           const cleanName = (conv?.contact_name || 'לקוח').substring(0, 50);
+
+          // "נציג מטפל" — מזהה המשתמש נשלף לפי המייל של הנציג
+          const mondayUserId = await getMondayUserIdByEmail(agentData?.email);
+
           const colValues = {
             'phone_mkw59e3v': { phone: phone.replace('+',''), countryShortName: 'IL' },
             'long_text_mkw5q0e2': { text: description },
             'text_mkzmby8z': 'Admin',
             'color_mkw5dvjb': { label: 'חדשה' },
-            'person': { personsAndTeams: [] },
           };
+          if (mondayUserId) {
+            colValues['multiple_person_mkw5rbj0'] = {
+              personsAndTeams: [{ id: mondayUserId, kind: 'person' }]
+            };
+          }
 
           const query = `mutation {
             create_item(
@@ -1915,7 +1963,7 @@ app.post('/api/email-webhook', async (req, res) => {
       'long_text_mkw5q0e2': { text: `נושא: ${emailSubject}\n\n${emailBody}` },
       'text_mkzmby8z': 'מייל',
       'color_mkw5dvjb': { label: 'חדשה' },
-      'email_mkw5q9z3': { email: senderEmail, text: senderEmail },
+      'email_mm3qph95': { email: senderEmail, text: senderEmail },
     };
 
     const cleanName = senderName.substring(0, 50);
