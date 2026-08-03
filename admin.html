@@ -116,6 +116,9 @@ select.avail-select option{color:#333}
 .agent-info-block{flex:1}
 .agent-name-row{font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px}
 .agent-sub{font-size:12px;color:#6c757d}
+.kb-group{margin-bottom:10px}
+.kb-group-head{font-size:12px;font-weight:600;color:#0d4f6c;background:#eef4f8;padding:6px 10px;border-radius:6px;margin-bottom:5px;display:flex;align-items:center;gap:6px}
+.kb-group-count{background:#1a6fa8;color:#fff;border-radius:99px;padding:1px 7px;font-size:11px}
 .badge-danger{background:#fdecea;color:#b42318}
 .agent-stats{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;font-size:12px;color:#495057}
 .agent-stats span{display:inline-flex;align-items:center;gap:4px}
@@ -313,6 +316,30 @@ select.avail-select option{color:#333}
             <div class="kb-form">
               <label>שם הטיול</label><input type="text" id="trip-name" placeholder="קרוז לאיסלנד">
               <label>קישור</label><input type="text" id="trip-url" placeholder="https://tarbutu.co.il/...">
+              <label>יעד</label>
+              <select id="trip-dest" style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;font-family:inherit;background:#fff">
+                <option value="">— זיהוי אוטומטי לפי שם הטיול —</option>
+                <optgroup label="🚢 קרוז בים">
+                  <option value="cruise:japan">יפן והמזרח הרחוק</option>
+                  <option value="cruise:australia">אוסטרליה וניו זילנד</option>
+                  <option value="cruise:mediterr">הים התיכון והקנריים</option>
+                  <option value="cruise:north">פיורדים, איסלנד והצפון</option>
+                  <option value="cruise:baltic">הים הבלטי</option>
+                  <option value="cruise:southam">דרום אמריקה</option>
+                  <option value="cruise:british">האיים הבריטיים</option>
+                  <option value="cruise:newengland">ניו אינגלנד ומזרח קנדה</option>
+                  <option value="cruise:indian">האוקיינוס ההודי</option>
+                </optgroup>
+                <optgroup label="🛶 שייט נהרות">
+                  <option value="river:rhine">הריין</option>
+                  <option value="river:danube">הדנובה</option>
+                  <option value="river:rhone">הרון והסון</option>
+                  <option value="river:dordogne">הדורדון</option>
+                  <option value="river:seine">הסיין</option>
+                  <option value="river:douro">הדאורו</option>
+                  <option value="river:other">נהרות נוספים</option>
+                </optgroup>
+              </select>
               <button class="btn btn-primary btn-sm" onclick="addTrip()"><i class="ti ti-plus"></i> הוסף</button>
             </div>
             <hr style="margin:.75rem 0;border:none;border-top:1px solid var(--border)">
@@ -1193,10 +1220,24 @@ async function addTrip(){
   const url=document.getElementById('trip-url').value.trim();
   if(!url){showToast('נא להכניס קישור');return;}
   if(trips.find(i=>i.url===url)){showToast('כבר קיים');return;}
+  const destSel=document.getElementById('trip-dest').value;
   trips.push({name:name||url,url,addedAt:new Date().toISOString(),scanned:false});
   await saveTrips();
+
+  // שיוך היעד שנבחר ידנית — גובר על הזיהוי האוטומטי
+  if(destSel){
+    const parts=destSel.split(':');
+    try{
+      await fetch(API+'/api/trip-classify',{method:'POST',
+        headers:{'Content-Type':'application/json','x-auth-token':authToken},
+        body:JSON.stringify({url,category:parts[0],destination:parts[1],manual:true})});
+    }catch(e){}
+  }
+
   await loadTripsFromServer();
-  document.getElementById('trip-name').value='';document.getElementById('trip-url').value='';
+  document.getElementById('trip-name').value='';
+  document.getElementById('trip-url').value='';
+  document.getElementById('trip-dest').value='';
   showToast('נוסף ✅');
 }
 async function bulkAddTrips(){
@@ -1225,7 +1266,29 @@ function renderTrips(){
   document.getElementById('trips-count').textContent='('+trips.length+')';
   const el=document.getElementById('trips-list');
   if(!trips.length){el.innerHTML='<div style="text-align:center;color:#adb5bd;padding:1rem;font-size:12px">אין טיולים</div>';return;}
-  el.innerHTML=trips.map(item=>'<div class="kb-item"><div class="kb-item-info"><div class="kb-item-name">'+item.name+'</div><div class="kb-item-url">'+item.url+'</div><div style="margin-top:3px"><span class="badge '+(item.scanned?'badge-ok':'badge-warn')+'">'+(item.scanned?'✅ נסרק':'⏳ ממתין')+'</span></div></div><button class="btn btn-sm btn-danger" onclick="removeTrip(\''+item.url.replace(/'/g,"\\'")+'\')" ><i class="ti ti-trash"></i></button></div>').join('');
+  // קיבוץ לפי יעד — כדי שלא יהיה בלגן ברשימה
+  var groups={}, order=[];
+  trips.forEach(function(item){
+    var key=item.destinationLabel
+      ? (item.category==='river'?'🛶 ':'🚢 ')+item.destinationLabel
+      : '⚠️ ללא יעד';
+    if(!groups[key]){groups[key]=[];order.push(key);}
+    groups[key].push(item);
+  });
+  order.sort(function(a,b){
+    if(a.indexOf('⚠️')===0) return 1;      // "ללא יעד" תמיד אחרון
+    if(b.indexOf('⚠️')===0) return -1;
+    return a.localeCompare(b,'he');
+  });
+
+  el.innerHTML=order.map(function(key){
+    var rows=groups[key].map(function(item){
+      var badges='<span class="badge '+(item.scanned?'badge-ok':'badge-warn')+'">'+(item.scanned?'✅ נסרק':'⏳ ממתין')+'</span>';
+      if(item.orphan) badges+=' <span class="badge badge-warn" title="נסרק אך אינו ברשימת הטיולים">לא ברשימה</span>';
+      return '<div class="kb-item"><div class="kb-item-info"><div class="kb-item-name">'+item.name+'</div><div class="kb-item-url">'+item.url+'</div><div style="margin-top:3px">'+badges+'</div></div><button class="btn btn-sm btn-danger" onclick="removeTrip(\''+item.url.replace(/'/g,"\\'")+'\')" ><i class="ti ti-trash"></i></button></div>';
+    }).join('');
+    return '<div class="kb-group"><div class="kb-group-head">'+key+' <span class="kb-group-count">'+groups[key].length+'</span></div>'+rows+'</div>';
+  }).join('');
 }
 
 function saveSupportData(){localStorage.setItem('kb-support-docs',JSON.stringify(supportDocs));localStorage.setItem('kb-support-text',supportText);syncToServer();}
