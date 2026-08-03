@@ -669,6 +669,117 @@ let knowledgeCache = null;
 let lastScanTime = null;
 let scanState = { isScanning: false, current: 0, total: 0, currentName: '' };
 
+// מחלץ מדף הטיול את המידע שהבוט הכי צריך, ומרכז אותו בראש התוכן
+// כדי שלא ייחתך: מה כולל · תאריכים · אנייה · חברה · למה תרבותו
+function extractTripHighlights(text) {
+  const out = [];
+
+  // בלוק הפרטים בראש הדף: קוד, משך, יציאה, חזרה, מדינות, אונייה, סגנון
+  const facts = [];
+  const grab = (label, re) => { const m = text.match(re); if (m) facts.push(label + ': ' + m[1].trim()); };
+  grab('קוד הטיול',  /קוד\s+הטיול\s*:?\s*([A-Z0-9\-]{2,15})/);
+  grab('משך',        /משך\s+הטיול[^:]{0,10}:?\s*([^\n]{2,40})/);
+  grab('יציאה',      /יציאה\s*:?\s*([^\n]{3,40})/);
+  grab('חזרה',       /חזרה\s*:?\s*([^\n]{3,40})/);
+  grab('מדינות',     /מדינות\s*:?\s*([^\n]{3,120})/);
+  grab('אונייה',     /אוני[יה]ה\s*:?\s*([^\n]{2,60})/);
+  grab('סגנון',      /סגנון\s*:?\s*([^\n]{3,60})/);
+  if (facts.length) out.push('=== פרטי הטיול ===\n' + facts.join('\n'));
+
+  // המחיר כולל
+  const inc = text.match(/(?:המחיר|הטיול)\s+כולל\s*:?([\s\S]{0,1200}?)(?=\n\s*(?:ה?(?:מחיר|טיול)\s+(?:אינו|לא)\s+כולל|הערות|על האוני|מדוע עם|למה עם)|$)/);
+  if (inc) {
+    // שורות טיסה מוסרות — הבוט לא מוסר פרטי טיסות
+    const t = inc[1]
+      .split('\n')
+      .filter(l => !/טיס(ות|ה)|מסלול\s+ישראל|נמל\s+התעופה/.test(l))
+      .join('\n')
+      .replace(/[ \t]+/g,' ').trim();
+    if (t.length > 30) out.push('=== המחיר כולל ===\n' + t.slice(0,1200));
+  }
+
+  // אינו כולל — כולל הנוסח "הטיול אינו כולל"
+  const notInc = text.match(/(?:המחיר|הטיול)\s+(?:אינו|לא)\s+כולל\s*:?([\s\S]{0,600}?)(?=\n\s*(?:הערות|תנאים|על האוני|מדוע עם|למה עם)|$)/);
+  if (notInc) {
+    const t = notInc[1].replace(/[ \t]+/g,' ').trim();
+    if (t.length > 15) out.push('=== אינו כולל ===\n' + t.slice(0,600));
+  }
+
+  // למה עם תרבותו — סעיף שלם בדף
+  const why = text.match(/(?:מדוע|למה)\s+עם\s+תרבותו([\s\S]{0,1200}?)(?=\n\s*(?:אתרים ואטרקציות|על האוני|המחיר כולל)|$)/);
+  if (why) {
+    const t = why[1].replace(/[ \t]+/g,' ').trim();
+    if (t.length > 40) out.push('=== למה עם תרבותו ===\n' + t.slice(0,1200));
+  }
+
+  // תאריכי יציאה
+  const dates = [...new Set((text.match(/\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b/g) || []))];
+  if (dates.length) out.push('=== תאריכים בדף ===\n' + dates.slice(0,25).join(' · '));
+
+  // חברת ההפלגות
+  const lines = ['MSC','Costa','Royal Caribbean','Norwegian','Celebrity','Princess','Holland America',
+                 'Cunard','AIDA','TUI','CroisiEurope','Viking','Ponant','Silversea','Oceania','Explora'];
+  const found = lines.filter(l => new RegExp(l.replace(/ /g,'\\s+'),'i').test(text));
+  if (found.length) out.push('=== חברת הפלגות ===\n' + found.join(', '));
+
+  return out.length ? out.join('\n\n') : null;
+}
+
+// ── סיווג טיולים לפי סוג ויעד ─────────────────────────────
+// היעדים מוגדרים במקום אחד — הבוט, האדמין והסיווג האוטומטי משתמשים באותה רשימה.
+
+const DESTINATIONS = {
+  cruise: [
+    { id: 'japan',      label: 'יפן והמזרח הרחוק',        keys: ['יפן','מזרח הרחוק','קוריאה','סין','הונג קונג','טייוואן','סינגפור','וייטנאם'] },
+    { id: 'australia',  label: 'אוסטרליה וניו זילנד',      keys: ['אוסטרלי','ניו זילנד'] },
+    { id: 'mediterr',   label: 'הים התיכון והקנריים',      keys: ['ים התיכון','הים התיכון','קנרי','אדריאטי','דוברובניק','מונטנגרו','קורפו','ונציה'] },
+    { id: 'north',      label: 'פיורדים, איסלנד והצפון',   keys: ['פיורד','איסלנד','שפיצברגן','הכף הצפוני','ארקטי','נורווג'] },
+    { id: 'baltic',     label: 'הים הבלטי',                keys: ['בלטי','בלטיות'] },
+    { id: 'southam',    label: 'דרום אמריקה',              keys: ['דרום אמריקה','פטגוני','ארגנטינ','ברזיל','צ׳ילה',"צ'ילה",'טראנס אטלנטי','אורוגוואי'] },
+    { id: 'british',    label: 'האיים הבריטיים',           keys: ['בריטי','אירלנד','סקוטלנד'] },
+    { id: 'newengland', label: 'ניו אינגלנד ומזרח קנדה',   keys: ['ניו אינגלנד','ניו אנגלנד','מזרח קנדה','אלסקה','קנדה'] },
+    { id: 'indian',     label: 'האוקיינוס ההודי',          keys: ['סיישל','מדגסקר','מאוריציוס','מלדיב','הודו'] },
+  ],
+  river: [
+    { id: 'rhine',    label: 'הריין',        keys: ['ריין'] },
+    { id: 'danube',   label: 'הדנובה',       keys: ['דנובה'] },
+    { id: 'rhone',    label: 'הרון והסון',   keys: ['רון','סון','פרובאנס','בורגונדי','ליון'] },
+    { id: 'dordogne', label: 'הדורדון',      keys: ['דורדון','פריגור'] },
+    { id: 'seine',    label: 'הסיין',        keys: ['סיין','נורמנדי'] },
+    { id: 'douro',    label: 'הדאורו',       keys: ['דאורו','דואורו','פורטוגל'] },
+    { id: 'other',    label: 'נהרות נוספים', keys: ['מקונג','לואר','ויטנאם'] },
+  ]
+};
+
+// מזהה סוג ויעד לפי שם הטיול ותוכנו. הסוג נקבע ראשון — הוא מצמצם את החיפוש.
+function classifyTrip(name, content) {
+  const hay = ((name || '') + ' ' + (content || '')).toLowerCase();
+  const has = (w) => hay.includes(w.toLowerCase());
+
+  // שייט נהרות מזוהה במפורש; כל השאר נחשב קרוז
+  const isRiver = has('שייט נהר') || has('שייט על נהר') || has('ספינת נהר') ||
+                  (has('שייט') && DESTINATIONS.river.some(d => d.keys.some(has)) && !has('קרוז'));
+  const category = isRiver ? 'river' : 'cruise';
+
+  // היעד — לפי מספר ההתאמות, השם מקבל משקל כפול
+  const nameLower = (name || '').toLowerCase();
+  let best = null, bestScore = 0;
+  for (const dest of DESTINATIONS[category]) {
+    let score = 0;
+    for (const k of dest.keys) {
+      if (nameLower.includes(k.toLowerCase())) score += 2;
+      else if (has(k)) score += 1;
+    }
+    if (score > bestScore) { bestScore = score; best = dest.id; }
+  }
+  return { category, destination: best, destinationLabel: best ? DESTINATIONS[category].find(d=>d.id===best).label : null };
+}
+
+function destLabel(category, id) {
+  const d = (DESTINATIONS[category] || []).find(x => x.id === id);
+  return d ? d.label : id;
+}
+
 async function scrapeUrl(url) {
   try {
     const res = await axios.get(url, { 
@@ -687,19 +798,38 @@ async function scrapeUrl(url) {
       console.error(`[Scan] Empty response for ${url}`);
       return null;
     }
-    const text = html
+    // הסרת רעש: תפריטים, פוטר, סרגלים, טפסים — כל מה שחוזר בכל דף
+    let clean = html
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+      .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+      .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+      .replace(/<form[^>]*>[\s\S]*?<\/form>/gi, '')
+      .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '')
+      .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '');
+
+    const text = clean
+      .replace(/<\/(p|div|li|h[1-6]|tr|br)>/gi, '\n')   // שמירת מבנה שורות
       .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
-      .trim()
-      .slice(0, 5000);
-    console.log(`[Scan] Got ${text.length} chars from ${url}`);
-    return text || null;
+      .replace(/&#8211;|&#8212;/g, '-')
+      .replace(/&quot;|&#8221;|&#8220;/g, '"')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    // חילוץ המידע החשוב לראש התוכן, כדי שלא ייחתך
+    const highlights = extractTripHighlights(text);
+    const body = text.slice(0, 5000);
+    const result = highlights ? highlights + '\n\n--- פרטים נוספים ---\n' + body : body;
+
+    console.log(`[Scan] Got ${result.length} chars from ${url}${highlights ? ' (עם חילוץ)' : ''}`);
+    return result || null;
+
   } catch (err) {
     console.error(`[Scan] Error scraping ${url}: ${err.message}`);
     return null;
@@ -722,7 +852,7 @@ async function buildKnowledgeBase() {
     for (const trip of dbTrips) {
       kb += `\n--- ${trip.name} ---\n`;
       kb += `קישור: ${trip.url}\n`;
-      if (trip.content) kb += `${trip.content.slice(0, 500)}\n`;
+      if (trip.content) kb += `${trip.content.slice(0, 3000)}\n`;
     }
   } else {
     // Use static list
@@ -760,13 +890,17 @@ async function scanAndSaveTrips() {
 
     const content = await scrapeUrl(trip.url);
     if (content) {
+      const cls = classifyTrip(trip.name, content);
       await supabase.from('knowledge_base').upsert([{
         name: trip.name,
         url: trip.url,
         content,
         type: 'trip',
+        category: cls.category,
+        destination: cls.destination,
         scanned_at: new Date().toISOString(),
       }], { onConflict: 'url' });
+      console.log(`[Scan]   → ${cls.category}/${cls.destination || 'ללא יעד'}`);
       scanned++;
     }
     await new Promise(r => setTimeout(r, 800));
@@ -778,6 +912,50 @@ async function scanAndSaveTrips() {
   console.log('[Scan] Done:', scanned, '/', allTrips.length, 'trips scanned');
 }
 
+// מאגר ממוקד: רק הטיולים של היעד שנבחר, בתוכן מלא.
+// זה מה שמחליף את החיתוך ל-2000 תווים שגרם לבוט לא להכיר את רוב הטיולים.
+async function getFocusedKnowledge({ category, destination } = {}) {
+  const { data: trips } = await supabase.from('knowledge_base').select('*').eq('type', 'trip');
+  const { data: txt }   = await supabase.from('knowledge_text').select('*').order('id', { ascending: false }).limit(1);
+
+  let kb = '=== מאגר מידע תרבותו ===\n';
+  kb += 'תרבותו — חברת טיולים ישראלית המתמחה בקרוזים, שייט נהרות וטיולים מאורגנים.\n\n';
+
+  const all = trips || [];
+  let list = all;
+  if (category)    list = list.filter(t => (t.category || 'cruise') === category);
+  if (destination) list = list.filter(t => t.destination === destination);
+
+  if (destination && list.length) {
+    kb += `=== טיולים ל${destLabel(category, destination)} (${list.length}) ===\n`;
+    for (const t of list) {
+      kb += `\n--- ${t.name} ---\nקישור: ${t.url}\n${(t.content || '').slice(0, 4000)}\n`;
+    }
+  } else if (category && list.length) {
+    // עדיין לא נבחר יעד — רק שמות, כדי שהבוט יוכל להציג אפשרויות
+    const byDest = {};
+    list.forEach(t => { const d = t.destination || 'other'; (byDest[d] = byDest[d] || []).push(t.name); });
+    kb += '=== היעדים הזמינים ===\n';
+    for (const d in byDest) kb += `\n${destLabel(category, d)}: ${byDest[d].join(' · ')}\n`;
+  } else {
+    // אין הקשר — רשימת שמות בלבד
+    kb += '=== הטיולים שלנו ===\n';
+    all.slice(0, 60).forEach(t => { kb += `- ${t.name}\n`; });
+  }
+
+  if (txt && txt.length) kb += '\n=== מדיניות ושירות ===\n' + txt[0].content;
+  return kb;
+}
+
+// מאגר השירות בלבד — למסלול "כבר הזמנתי"
+async function getServiceKnowledge() {
+  const { data: txt } = await supabase.from('knowledge_text').select('*').order('id', { ascending: false }).limit(1);
+  let kb = '=== מידע שירות לקוחות — תרבותו ===\n';
+  if (txt && txt.length) kb += txt[0].content;
+  else kb += '(אין עדיין תוכן במאגר השירות)';
+  return kb;
+}
+
 async function getKnowledge() {
   if (!knowledgeCache) await buildKnowledgeBase();
   return knowledgeCache;
@@ -785,42 +963,102 @@ async function getKnowledge() {
 
 // ── AI — בוט בלבד ────────────────────────────────────────
 
+// קורא את השיחה עד כה ומזהה: מסלול (מכירות/שירות), סוג ויעד.
+// זה מה שקובע איזה חלק מהמאגר יישלח לבוט.
+function detectContext(messages) {
+  const text = (messages || [])
+    .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'bot')
+    .map(m => (typeof m.content === 'string' ? m.content : ''))
+    .join(' ')
+    .toLowerCase();
+
+  const has = (w) => text.includes(w.toLowerCase());
+
+  // מסלול שירות — מי שכבר הזמין
+  const service = has('כבר הזמנתי') || has('כבר נרשמתי') || has('הזמנה קיימת') ||
+                  has('שאלה על טיול שהזמנתי') || has('כבר סגרתי') ||
+                  has('הטיול שלי') || has('הדרכון') || has('ביטול') || has('ההזמנה שלי');
+  if (service) return { track: 'service' };
+
+  // סוג
+  let category = null;
+  if (has('שייט נהר') || has('נהרות')) category = 'river';
+  else if (has('קרוז') || has('הפלגה') || has('בים')) category = 'cruise';
+
+  // יעד — נבדק בשני הסוגים אם עוד לא נקבע סוג
+  let destination = null;
+  const search = category ? [category] : ['cruise', 'river'];
+  for (const cat of search) {
+    for (const d of DESTINATIONS[cat]) {
+      if (d.keys.some(k => has(k)) || has(d.label)) {
+        destination = d.id;
+        category = cat;
+        break;
+      }
+    }
+    if (destination) break;
+  }
+
+  return { track: 'sales', category, destination };
+}
+
 async function getAIResponse(phone, userMessage, systemPrompt) {
   console.log('[AI] Request from', phone, ':', userMessage.slice(0, 50));
   const conv = await getConversation(phone);
   const history = conv?.messages || [];
   const updatedHistory = [...history, { role: 'user', content: userMessage }];
   
-  // Get knowledge base (max 2000 chars to avoid token limit)
-  const kb = await getKnowledge();
-  const kbShort = kb.slice(0, 2000);
-  const system = systemPrompt || `אתה עוזר של תרבותו — חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים. שמך "עוזר תרבותו".
+  // מאגר ממוקד לפי ההקשר שהתגלה בשיחה — במקום חיתוך גס של כל המאגר
+  const ctx = detectContext(updatedHistory);
+  const kb = ctx.track === 'service'
+    ? await getServiceKnowledge()
+    : await getFocusedKnowledge({ category: ctx.category, destination: ctx.destination });
 
-## אישיות:
-- חם, נלהב, מקצועי
-- ענה בעברית, קצר וממוקד — לא יותר מ-3 משפטים
-- שאלה אחת בכל פעם!
-- אל תמציא מידע
+  const destList = (cat) => DESTINATIONS[cat].map(d => '• ' + d.label).join('\n');
 
-## זרימת שיחה מכירות 🚢:
-1. שאל: "באיזה יעד או טיול אתה מעוניין?"
-2. הצג טיול רלוונטי מהמאגר
-3. שאל: "מה שמך המלא (שם + שם משפחה)?"
-4. שאל: "מה מספר הטלפון שלך?"
-5. שאל: "כמה נוסעים ומה התאריך המועדף?"
-6. סכם: "תודה [שם]! נציג יחזור אליך תוך שעה עם הצעת מחיר 😊"
-לגבי מחיר — אמור: "המחיר תלוי בתאריך וסוג הקבין, נציג יכין לך הצעה אישית"
+  const system = systemPrompt || `אתה העוזר הדיגיטלי של תרבותו — חברת טיולים ישראלית המתמחה בקרוזים, שייט נהרות וטיולים מאורגנים בליווי ישראלי.
 
-## זרימת שיחה שירות לקוחות 🎧:
-1. שאל: "במה אוכל לעזור?"
-2. נסה לענות — ביטול/דרכון/מסמכים/ביטוח
-3. אם צריך נציג — שאל: "מה שמך המלא?"
-4. שאל: "מה מספר הטלפון שלך?"
-5. שאל: "תאר בקצרה את נושא הפנייה"
-6. סכם: "תודה [שם]! נציג מומחה יחזור אליך תוך שעה 🙏"
+## איך לדבר
+רוב הפונים אלינו הם בני 60 ומעלה. דבר איתם בחום, בסבלנות ובכבוד.
+- משפטים קצרים ובהירים. בלי מונחים מקצועיים ובלי סלנג.
+- אם שואלים אותך שוב או מנסחים אחרת — ענה מחדש באותה נעימות. לעולם אל תרמוז שכבר ענית.
+- שאלה אחת בכל פעם. אל תמהר ואל תלחץ.
+- אמוג'י אחד לכל היותר בהודעה.
+- לעולם אל תמציא מידע שאינו במאגר.
 
-## טיולים זמינים:
-${kbShort}`;
+## שני דברים שחשוב להדגיש בכל תשובה מהותית
+**למה תרבותו:** ליווי ישראלי לאורך כל הדרך · מדריך מומחה דובר עברית · קבוצה מאורגנת · מסלול מלא ללא ימים חופשיים וללא סיורי בחירה בתשלום · הכל מטופל מראש.
+**מה המסלול כולל:** ספר בפירוט מה נכלל — הלינה, הסיורים, הארוחות, המדריך, ההעברות. זה מה שממחיש את הערך.
+
+## איסור מוחלט — מחירים
+לעולם אל תנקוב במחיר, גם אם הוא מופיע במאגר וגם אם מתעקשים.
+במקום זה: "המחיר משתנה לפי התאריך וסוג התא. נציג שלנו יכין לך הצעה אישית מדויקת."
+כך גם לגבי פרטי טיסות — אל תמסור מספרי טיסה או שעות.
+
+## מסלול מכירות 🚢
+שלב 1 — שאל: "האם מעניין אותך קרוז בים או שייט נהרות באירופה?"
+שלב 2 — לפי הבחירה, הצג את היעדים:
+קרוז בים:
+${destList('cruise')}
+שייט נהרות:
+${destList('river')}
+שלב 3 — הצג את הטיולים של אותו יעד מהמאגר, עם תיאור קצר וקישור.
+שלב 4 — **ענה על שאלות.** זה השלב החשוב. הישאר בשיחה כל עוד שואלים: מה כולל, מתי יוצא, איזו אנייה, מה רואים. אל תמהר לבקש פרטים.
+שלב 5 — כשניכר עניין אמיתי או שנגמרו השאלות, בקש בעדינות: תאריך מועדף, ואז שם מלא, ואז טלפון.
+סיום: "תודה [שם]! נציג שלנו יחזור אליך בהקדם 😊"
+
+## מסלול שירות לקוחות 💬 (למי שכבר הזמין)
+1. ענה מתוך מאגר השירות שלמטה.
+2. אם אין לך תשובה — אל תנחש. אמור: "אני רוצה לוודא שתקבל תשובה מדויקת. אשמח לקחת פרטים ונציג יחזור אליך."
+3. בקש שם מלא, ואז טלפון, ואז נושא הפנייה בקצרה.
+4. סיים: "תודה [שם]! נציג יחזור אליך בהקדם 🙏"
+
+## אסור
+- אל תבטיח מסגרת זמן לחזרת נציג ("תוך שעה" וכדומה) — רק "בהקדם".
+- אל תשלח קישורים אלא אם התבקשת או שהצגת טיול ספציפי.
+
+## המאגר
+${kb}`;
 
   // Anthropic מקבל רק user/assistant עם תוכן טקסט לא ריק, והרשימה חייבת להתחיל ב-user.
   // ההיסטוריה השמורה מכילה גם הודעות נציג, הערות פנימיות והודעות קבצים — כל אחת מהן
@@ -1797,6 +2035,24 @@ app.post('/api/kb-update', async (req, res) => {
 });
 
 // טעינת רשימת טיולים מ-Supabase
+// רשימת היעדים — לשימוש האדמין
+app.get('/api/destinations', (req, res) => res.json(DESTINATIONS));
+
+// תיקון ידני של סוג/יעד לטיול
+app.post('/api/trip-classify', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor']);
+    if (!me) return;
+    const { url, category, destination } = req.body;
+    if (!url) return res.status(400).json({ error: 'חסר קישור' });
+    await supabase.from('knowledge_base')
+      .update({ category: category || null, destination: destination || null })
+      .eq('url', url);
+    knowledgeCache = null;
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/trips-list', async (req, res) => {
   try {
     const { data: dbTrips } = await supabase.from('trips_list').select('*').order('added_at', { ascending: true });
