@@ -502,8 +502,6 @@
   }
 
   // ── פתיחה/סגירה ────────────────────────────────
-  let optionsShown = false;
-
   function openChat() {
     isOpen = true;
     win.classList.remove('tb-hidden');
@@ -512,13 +510,7 @@
     notif.classList.remove('tb-show');
     setTimeout(() => input.focus(), 300);
 
-    // כפתורי הפתיחה — פעם אחת בלבד
-    if (!optionsShown && stage === 'track') {
-      optionsShown = true;
-      setTimeout(function () {
-        showOptions(['🚢 מתכנן הפלגה חדשה', '💬 יש לי שאלה על טיול שהזמנתי']);
-      }, 400);
-    }
+
   }
 
   function closeChat() {
@@ -532,6 +524,11 @@
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
+  // כפתורי הפתיחה מוצגים מיד עם הודעת הפתיחה — לא תלוי בפתיחת החלון
+  if (stage === 'track') {
+    showOptions(['🚢 מתכנן הפלגה חדשה', '💬 יש לי שאלה על טיול שהזמנתי']);
+  }
+
   document.getElementById('tb-close-btn').addEventListener('click', closeChat);
   toggle.addEventListener('click', openChat);
 })();
