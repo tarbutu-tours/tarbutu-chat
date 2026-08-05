@@ -322,7 +322,8 @@ select.avail-select option{color:#333}
                 <optgroup label="🚢 קרוז בים">
                   <option value="cruise:japan">יפן והמזרח הרחוק</option>
                   <option value="cruise:australia">אוסטרליה וניו זילנד</option>
-                  <option value="cruise:mediterr">הים התיכון והקנריים</option>
+                  <option value="cruise:mediterr">הים התיכון</option>
+                  <option value="cruise:canary">האיים הקנריים</option>
                   <option value="cruise:north">פיורדים, איסלנד והצפון</option>
                   <option value="cruise:baltic">הים הבלטי</option>
                   <option value="cruise:southam">דרום אמריקה</option>
@@ -383,6 +384,11 @@ select.avail-select option{color:#333}
             <div class="card-title"><i class="ti ti-files"></i> מסמכים <span id="docs-count" style="font-size:11px;color:#6c757d;font-weight:400">(0)</span></div>
             <button class="btn btn-sm btn-outline" onclick="clearDocs()"><i class="ti ti-trash"></i></button>
           </div>
+          <div style="padding:0 1rem .5rem">
+            <input type="text" id="docs-search" placeholder="🔍 חפש במאגר השירות..." oninput="renderDocs()"
+                   style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;font-family:inherit;direction:rtl">
+            <div style="font-size:11px;color:#adb5bd;margin-top:4px">לחיצה על מסמך פותחת את התוכן המלא</div>
+          </div>
           <div class="card-body">
             <div class="kb-list" id="docs-list"></div>
             <div id="support-preview" style="margin-top:.75rem;display:none">
@@ -409,6 +415,17 @@ select.avail-select option{color:#333}
     <div class="card">
       <div class="card-header"><div class="card-title"><i class="ti ti-users"></i> ביצועי נציגים</div></div>
       <div class="card-body" id="agent-stats"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><i class="ti ti-chart-bar"></i> מקורות הגעה וקמפיינים</div>
+        <select id="camp-days" onchange="loadCampaigns()" style="padding:5px 9px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
+          <option value="7">7 ימים</option>
+          <option value="30" selected>30 ימים</option>
+          <option value="90">90 ימים</option>
+        </select>
+      </div>
+      <div class="card-body" id="campaign-report"><div style="color:#adb5bd;font-size:12px">טוען...</div></div>
     </div>
   </div>
 </div>
@@ -616,7 +633,7 @@ function showPage(id) {
   document.getElementById('tab-'+id).classList.add('active');
   if(id==='knowledge'){loadTripsFromServer();renderDocs();loadCacheStatus();}
   if(id==='agents')loadAgents();
-  if(id==='reports')loadReports();
+  if(id==='reports'){loadReports();loadCampaigns();}
 }
 
 function showChannel(ch) {
@@ -637,6 +654,43 @@ function setFilter(f, btn) {
 
 // סינון לפי ערוץ — מגיע מהקוביות בדוחות, אין לו כפתור קבוע
 var currentChannelFilter = null;
+
+async function loadCampaigns(){
+  var el=document.getElementById('campaign-report');
+  if(!el) return;
+  var days=(document.getElementById('camp-days')||{}).value||30;
+  try{
+    var r=await fetch(API+'/api/campaign-report?days='+days,{headers:{'x-auth-token':authToken}});
+    var d=await r.json();
+    if(!r.ok){ el.innerHTML='<div style="color:#b42318;font-size:12px">'+(d.error||'שגיאה')+'</div>'; return; }
+    if(!d.campaigns||!d.campaigns.length){
+      el.innerHTML='<div style="color:#adb5bd;font-size:12px">אין עדיין נתוני מקור. הנתונים נאספים משיחות חדשות שמגיעות מהאתר.</div>';
+      return;
+    }
+    var rows=d.campaigns.map(function(c){
+      return '<tr style="border-bottom:1px solid #eee">'+
+        '<td style="padding:7px 9px;font-size:12.5px;font-weight:500">'+c.source+'</td>'+
+        '<td style="padding:7px 9px;font-size:12.5px;color:#5a6a72">'+c.campaign+'</td>'+
+        '<td style="padding:7px 9px;font-size:12.5px;text-align:center">'+c.conversations+'</td>'+
+        '<td style="padding:7px 9px;font-size:12.5px;text-align:center;font-weight:600;color:#0d4f6c">'+c.leads+'</td>'+
+        '<td style="padding:7px 9px;font-size:12px;text-align:center;color:'+(c.conversionRate>=20?'#0a7a3d':'#5a6a72')+'">'+c.conversionRate+'%</td>'+
+      '</tr>';
+    }).join('');
+    el.innerHTML=
+      '<div style="font-size:11px;color:#6c757d;margin-bottom:8px">מ-'+d.from+' · '+d.totalConversations+' שיחות'+
+      (d.withoutSource?' · '+d.withoutSource+' ללא מקור מזוהה':'')+'</div>'+
+      '<table style="width:100%;border-collapse:collapse">'+
+        '<tr style="background:#f4f6f8">'+
+          '<th style="padding:7px 9px;text-align:right;font-size:11px;color:#5a6a72">מקור</th>'+
+          '<th style="padding:7px 9px;text-align:right;font-size:11px;color:#5a6a72">קמפיין</th>'+
+          '<th style="padding:7px 9px;text-align:center;font-size:11px;color:#5a6a72">שיחות</th>'+
+          '<th style="padding:7px 9px;text-align:center;font-size:11px;color:#5a6a72">לידים</th>'+
+          '<th style="padding:7px 9px;text-align:center;font-size:11px;color:#5a6a72">המרה</th>'+
+        '</tr>'+rows+
+      '</table>'+
+      '<div style="font-size:11px;color:#adb5bd;margin-top:8px">ספירות בלבד — אין כאן פרטים מזהים של לקוחות</div>';
+  }catch(e){ el.innerHTML='<div style="color:#b42318;font-size:12px">טעינה נכשלה</div>'; }
+}
 
 async function sendReportNow(btn) {
   var orig = btn.innerHTML;
@@ -1284,6 +1338,7 @@ function renderTrips(){
   el.innerHTML=order.map(function(key){
     var rows=groups[key].map(function(item){
       var badges='<span class="badge '+(item.scanned?'badge-ok':'badge-warn')+'">'+(item.scanned?'✅ נסרק':'⏳ ממתין')+'</span>';
+      if(item.scanError) badges+=' <span class="badge badge-danger" title="'+item.scanError+'">✗ הסריקה נכשלה</span>';
       if(item.orphan) badges+=' <span class="badge badge-warn" title="נסרק אך אינו ברשימת הטיולים">לא ברשימה</span>';
       return '<div class="kb-item"><div class="kb-item-info"><div class="kb-item-name">'+item.name+'</div><div class="kb-item-url">'+item.url+'</div><div style="margin-top:3px">'+badges+'</div></div><button class="btn btn-sm btn-danger" onclick="removeTrip(\''+item.url.replace(/'/g,"\\'")+'\')" ><i class="ti ti-trash"></i></button></div>';
     }).join('');
@@ -1326,11 +1381,54 @@ async function syncTripTextToServer(text){
 function saveText(){const txt=document.getElementById('free-text').value.trim();if(!txt){showToast('הכנס טקסט');return;}supportDocs.push({name:'טקסט חופשי',type:'TXT',chars:txt.length,addedAt:new Date().toISOString()});supportText=supportText?supportText+'\n\n=== טקסט ===\n'+txt:'=== טקסט ===\n'+txt;document.getElementById('free-text').value='';saveSupportData();renderDocs();showToast('נשמר ✅');}
 function clearDocs(){if(!confirm('למחוק?'))return;supportDocs=[];supportText='';localStorage.removeItem('kb-support-docs');localStorage.removeItem('kb-support-text');syncToServer();renderDocs();}
 function renderDocs(){
-  const el=document.getElementById('docs-list');const icons={PDF:'📄',DOCX:'📝',DOC:'📝',TXT:'📋'};
+  const el=document.getElementById('docs-list');
+  const icons={PDF:'📄',DOCX:'📝',DOC:'📝',TXT:'📋'};
   document.getElementById('docs-count').textContent='('+supportDocs.length+')';
-  if(!supportDocs.length){el.innerHTML='<div style="text-align:center;color:#adb5bd;padding:1rem;font-size:12px">לא הועלו מסמכים</div>';document.getElementById('support-preview').style.display='none';return;}
-  el.innerHTML=supportDocs.map((d,i)=>'<div class="kb-item"><div class="kb-item-info"><div class="kb-item-name">'+(icons[d.type]||'📄')+' '+d.name+'</div><div class="kb-item-url">'+d.type+' · '+d.chars.toLocaleString()+' תווים</div></div><button class="btn btn-sm btn-danger" onclick="removeDoc('+i+')"><i class="ti ti-trash"></i></button></div>').join('');
-  if(supportText){document.getElementById('support-preview').style.display='block';document.getElementById('support-text-preview').value=supportText.slice(0,300)+(supportText.length>300?'...':'');document.getElementById('support-chars').textContent='סה"כ: '+supportText.length.toLocaleString()+' תווים';}
+  if(!supportDocs.length){
+    el.innerHTML='<div style="text-align:center;color:#adb5bd;padding:1rem;font-size:12px">לא הועלו מסמכים</div>';
+    document.getElementById('support-preview').style.display='none';
+    return;
+  }
+
+  // פיצול הטקסט המאוחסן למקטעים, כדי להציג כותרת ותצוגה מקדימה לכל מסמך
+  var parts=(supportText||'').split(/===\s*טקסט\s*===/).map(function(x){return x.trim()}).filter(Boolean);
+
+  var q=(document.getElementById('docs-search')||{}).value||'';
+  q=q.trim().toLowerCase();
+
+  var html=supportDocs.map(function(d,i){
+    var body=parts[i]||'';
+    var lines=body.split('\n').map(function(x){return x.trim()}).filter(Boolean);
+    var title=(lines[0]||d.name||'מסמך').replace(/^===+|===+$/g,'').trim().slice(0,70);
+    var preview=lines.slice(1,3).join(' · ').slice(0,110);
+
+    if(q && (title+' '+body).toLowerCase().indexOf(q)===-1) return '';
+
+    return '<div class="kb-item" style="align-items:flex-start">'+
+      '<div class="kb-item-info" style="cursor:pointer" onclick="toggleDoc('+i+')">'+
+        '<div class="kb-item-name">'+(icons[d.type]||'📄')+' '+title+'</div>'+
+        (preview?'<div class="kb-item-url" style="direction:rtl;text-align:right">'+preview+'…</div>':'')+
+        '<div style="margin-top:3px"><span class="badge badge-ok">'+d.chars.toLocaleString()+' תווים</span></div>'+
+        '<div id="doc-body-'+i+'" style="display:none;margin-top:8px;background:#f8f9fa;border-radius:6px;padding:10px;font-size:12px;line-height:1.7;white-space:pre-wrap;max-height:280px;overflow-y:auto;direction:rtl;text-align:right">'+
+          body.replace(/</g,'&lt;')+
+        '</div>'+
+      '</div>'+
+      '<button class="btn btn-sm btn-danger" onclick="removeDoc('+i+')"><i class="ti ti-trash"></i></button>'+
+    '</div>';
+  }).join('');
+
+  el.innerHTML=html||'<div style="text-align:center;color:#adb5bd;padding:1rem;font-size:12px">לא נמצאו תוצאות</div>';
+
+  if(supportText){
+    document.getElementById('support-preview').style.display='block';
+    document.getElementById('support-text-preview').value=supportText.slice(0,300)+(supportText.length>300?'...':'');
+    document.getElementById('support-chars').textContent='סה"כ: '+supportText.length.toLocaleString()+' תווים';
+  }
+}
+
+function toggleDoc(i){
+  var el=document.getElementById('doc-body-'+i);
+  if(el) el.style.display = el.style.display==='none' ? 'block' : 'none';
 }
 function removeDoc(idx){supportDocs.splice(idx,1);saveSupportData();renderDocs();}
 function setProc(s,t){const b=document.getElementById('proc-bar');if(s){b.classList.add('show');document.getElementById('proc-text').textContent=t||'מעבד...';}else b.classList.remove('show');}
