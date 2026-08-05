@@ -6,6 +6,38 @@
 (function () {
   const API = 'https://tarbutu-chat-production.up.railway.app';
 
+  // מקור ההגעה — נתפס פעם אחת ונשמר, כי הפרמטרים נעלמים מהכתובת בניווט הבא.
+  // נשמר רק שם הקמפיין והמקור, לצורך ספירה. אין כאן שום מידע אישי.
+  const TRAFFIC = (function () {
+    try {
+      const saved = sessionStorage.getItem('tarbutu_src');
+      if (saved) return JSON.parse(saved);
+
+      const q = new URLSearchParams(location.search);
+      const src = {
+        source:   q.get('utm_source')   || null,
+        medium:   q.get('utm_medium')   || null,
+        campaign: q.get('utm_campaign') || null,
+        term:     q.get('utm_term')     || null,
+        gclid:    q.get('gclid')        || null,
+        landing:  location.pathname || null,
+        referrer: document.referrer ? new URL(document.referrer).hostname : null,
+      };
+
+      // זיהוי מקור גם בלי פרמטרים, לפי מאיפה הגיע
+      if (!src.source && src.referrer) {
+        if (/google\./.test(src.referrer))   src.source = 'google-organic';
+        else if (/facebook|instagram/.test(src.referrer)) src.source = 'facebook';
+        else if (!/tarbutu/.test(src.referrer)) src.source = src.referrer;
+      }
+      if (!src.source && !src.referrer) src.source = 'direct';
+      if (src.gclid && !src.medium) src.medium = 'cpc';
+
+      sessionStorage.setItem('tarbutu_src', JSON.stringify(src));
+      return src;
+    } catch (e) { return {}; }
+  })();
+
   // מזהה שיחה נשמר לאורך הגלישה — רענון עמוד לא מאבד את ההקשר.
   // נמחק כשהלקוח סוגר את הטאב.
   const SESSION_KEY = (function () {
@@ -379,7 +411,7 @@
   // ── שלבי הכפתורים ──────────────────────────────
   // שלושת השלבים הראשונים נבחרים בלחיצה. אחריהם — מלל חופשי.
   const CRUISE_DESTS = [
-    'יפן והמזרח הרחוק', 'אוסטרליה וניו זילנד', 'הים התיכון והקנריים',
+    'יפן והמזרח הרחוק', 'אוסטרליה וניו זילנד', 'הים התיכון', 'האיים הקנריים',
     'פיורדים, איסלנד והצפון', 'הים הבלטי', 'דרום אמריקה',
     'האיים הבריטיים', 'ניו אינגלנד ומזרח קנדה', 'האוקיינוס ההודי'
   ];
@@ -476,6 +508,7 @@
         body: JSON.stringify({
           message: text,
           sessionId: SESSION_KEY,
+          traffic: TRAFFIC,
           history: history.slice(-20),
           chatType: stage === 'free' ? 'auto' : 'sales',
         }),
