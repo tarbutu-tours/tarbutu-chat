@@ -732,7 +732,8 @@ const DESTINATIONS = {
   cruise: [
     { id: 'japan',      label: 'יפן והמזרח הרחוק',        keys: ['יפן','מזרח הרחוק','קוריאה','סין','הונג קונג','טייוואן','סינגפור','וייטנאם'] },
     { id: 'australia',  label: 'אוסטרליה וניו זילנד',      keys: ['אוסטרלי','ניו זילנד'] },
-    { id: 'mediterr',   label: 'הים התיכון והקנריים',      keys: ['ים התיכון','הים התיכון','קנרי','אדריאטי','דוברובניק','מונטנגרו','קורפו','ונציה'] },
+    { id: 'mediterr',   label: 'הים התיכון',                keys: ['ים התיכון','הים התיכון','אדריאטי','דוברובניק','מונטנגרו','קורפו','ונציה','יוון','איטליה','ספרד','מלטה'] },
+    { id: 'canary',     label: 'האיים הקנריים',             keys: ['קנרי','קנרים','טנריף','לנסרוטה','גראן קנריה','מדיירה','פונשל'] },
     { id: 'north',      label: 'פיורדים, איסלנד והצפון',   keys: ['פיורד','איסלנד','שפיצברגן','הכף הצפוני','ארקטי','נורווג'] },
     { id: 'baltic',     label: 'הים הבלטי',                keys: ['בלטי','בלטיות'] },
     { id: 'southam',    label: 'דרום אמריקה',              keys: ['דרום אמריקה','פטגוני','ארגנטינ','ברזיל','צ׳ילה',"צ'ילה",'טראנס אטלנטי','אורוגוואי'] },
@@ -788,14 +789,19 @@ async function scrapeUrl(url) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Encoding': 'gzip, deflate',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache'
       }
     });
-    const html = res.data;
+    const html = typeof res.data === 'string' ? res.data : String(res.data || '');
     if (!html || html.length < 100) {
-      console.error(`[Scan] Empty response for ${url}`);
+      console.error(`[Scan] תגובה ריקה מ-${url} (סטטוס ${res.status}, אורך ${html.length})`);
+      return null;
+    }
+    // דף התחברות או שגיאה מוסווית כ-200
+    if (/wp-login|<title>[^<]*(?:404|לא נמצא|Not Found)/i.test(html.slice(0, 3000))) {
+      console.error(`[Scan] הדף דורש התחברות או אינו קיים: ${url}`);
       return null;
     }
     // הסרת רעש: תפריטים, פוטר, סרגלים, טפסים — כל מה שחוזר בכל דף
@@ -841,7 +847,7 @@ async function buildKnowledgeBase() {
   
   // Get trips from Supabase
   const { data: dbTrips } = await supabase.from('knowledge_base').select('*');
-  const { data: dbText } = await supabase.from('knowledge_text').select('*').order('id', { ascending: false }).limit(1);
+  const { data: dbText } = await supabase.from('knowledge_text').select('*').order('id', { ascending: true });
   
   let kb = '=== מאגר מידע תרבותו ===\n\n';
   kb += 'תרבותו היא חברת טיולים ישראלית המתמחה בקרוזים וטיולים מאורגנים.\n\n';
@@ -863,7 +869,8 @@ async function buildKnowledgeBase() {
   
   // Add support text
   if (dbText && dbText.length > 0) {
-    kb += '\n=== מדיניות ושירות ===\n' + dbText[0].content;
+    kb += '\n=== מדיניות ושירות ===\n';
+    dbText.forEach(d => { if ((d.content || '').trim()) kb += (d.content || '').trim() + '\n\n'; });
   }
   
   knowledgeCache = kb;
@@ -889,14 +896,14 @@ async function scanAndSaveTrips() {
     console.log(`[Scan] ${i+1}/${allTrips.length}: ${trip.name}`);
 
     const content = await scrapeUrl(trip.url);
+
+    // שיוך שנבחר ידנית באדמין גובר על הזיהוי האוטומטי
+    const { data: prev } = await supabase.from('knowledge_base')
+      .select('category, destination, manual_dest, content').eq('url', trip.url).maybeSingle();
+    const keepManual = prev?.manual_dest && prev?.destination;
+    const cls = classifyTrip(trip.name, content || '');
+
     if (content) {
-      const cls = classifyTrip(trip.name, content);
-
-      // שיוך שנבחר ידנית באדמין גובר על הזיהוי האוטומטי
-      const { data: prev } = await supabase.from('knowledge_base')
-        .select('category, destination, manual_dest').eq('url', trip.url).maybeSingle();
-      const keepManual = prev?.manual_dest && prev?.destination;
-
       await supabase.from('knowledge_base').upsert([{
         name: trip.name,
         url: trip.url,
@@ -905,10 +912,24 @@ async function scanAndSaveTrips() {
         category:    keepManual ? prev.category    : cls.category,
         destination: keepManual ? prev.destination : cls.destination,
         manual_dest: prev?.manual_dest || false,
+        scan_error: null,
         scanned_at: new Date().toISOString(),
       }], { onConflict: 'url' });
-      console.log(`[Scan]   → ${cls.category}/${cls.destination || 'ללא יעד'}`);
+      console.log(`[Scan]   → ${keepManual ? prev.destination + ' (ידני)' : cls.destination || 'ללא יעד'}`);
       scanned++;
+    } else {
+      // הסריקה נכשלה — שומרים את השיוך ומסמנים את הסיבה, כדי שלא ייעלם בשקט
+      console.warn(`[Scan]   ✗ לא הוחזר תוכן מ-${trip.url}`);
+      await supabase.from('knowledge_base').upsert([{
+        name: trip.name,
+        url: trip.url,
+        content: prev?.content || '',
+        type: 'trip',
+        category:    keepManual ? prev.category    : (prev?.category || cls.category),
+        destination: keepManual ? prev.destination : (prev?.destination || cls.destination),
+        manual_dest: prev?.manual_dest || false,
+        scan_error: 'לא הוחזר תוכן מהדף',
+      }], { onConflict: 'url' });
     }
     await new Promise(r => setTimeout(r, 800));
   }
@@ -923,7 +944,7 @@ async function scanAndSaveTrips() {
 // זה מה שמחליף את החיתוך ל-2000 תווים שגרם לבוט לא להכיר את רוב הטיולים.
 async function getFocusedKnowledge({ category, destination } = {}) {
   const { data: trips } = await supabase.from('knowledge_base').select('*').eq('type', 'trip');
-  const { data: txt }   = await supabase.from('knowledge_text').select('*').order('id', { ascending: false }).limit(1);
+  const { data: txt }   = await supabase.from('knowledge_text').select('*').order('id', { ascending: true });
 
   let kb = '=== מאגר מידע תרבותו ===\n';
   kb += 'תרבותו — חברת טיולים ישראלית המתמחה בקרוזים, שייט נהרות וטיולים מאורגנים.\n\n';
@@ -950,16 +971,28 @@ async function getFocusedKnowledge({ category, destination } = {}) {
     all.slice(0, 60).forEach(t => { kb += `- ${t.name}\n`; });
   }
 
-  if (txt && txt.length) kb += '\n=== מדיניות ושירות ===\n' + txt[0].content;
+  if (txt && txt.length) {
+    kb += '\n=== מדיניות ושירות ===\n';
+    txt.forEach(d => { if ((d.content || '').trim()) kb += (d.content || '').trim() + '\n\n'; });
+  }
   return kb;
 }
 
 // מאגר השירות בלבד — למסלול "כבר הזמנתי"
 async function getServiceKnowledge() {
-  const { data: txt } = await supabase.from('knowledge_text').select('*').order('id', { ascending: false }).limit(1);
+  // כל המסמכים, לא רק האחרון — זה מה שמאפשר לבוט לענות בעצמו
+  const { data: docs } = await supabase.from('knowledge_text')
+    .select('*').order('id', { ascending: true });
+
   let kb = '=== מידע שירות לקוחות — תרבותו ===\n';
-  if (txt && txt.length) kb += txt[0].content;
-  else kb += '(אין עדיין תוכן במאגר השירות)';
+  if (!docs || !docs.length) return kb + '(אין עדיין תוכן במאגר השירות)';
+
+  docs.forEach((d, i) => {
+    const body = (d.content || '').trim();
+    if (!body) return;
+    const title = (d.title || body.split('\n')[0] || '').trim().slice(0, 80);
+    kb += `\n--- ${title || 'מסמך ' + (i + 1)} ---\n${body}\n`;
+  });
   return kb;
 }
 
@@ -1055,10 +1088,18 @@ ${destList('river')}
 סיום: "תודה [שם]! נציג שלנו יחזור אליך בהקדם 😊"
 
 ## מסלול שירות לקוחות 💬 (למי שכבר הזמין)
-1. ענה מתוך מאגר השירות שלמטה.
-2. אם אין לך תשובה — אל תנחש. אמור: "אני רוצה לוודא שתקבל תשובה מדויקת. אשמח לקחת פרטים ונציג יחזור אליך."
-3. בקש שם מלא, ואז טלפון, ואז נושא הפנייה בקצרה.
-4. סיים: "תודה [שם]! נציג יחזור אליך בהקדם 🙏"
+**התפקיד שלך כאן הוא לענות בעצמך.** העברה לנציג היא המוצא האחרון, לא הראשון.
+
+1. **חפש היטב במאגר השירות שלמטה.** התשובה שם גם אם הלקוח ניסח אחרת ממה שכתוב. "מתי לשלם" ו"תנאי תשלום" זה אותו דבר. "מה עם המזוודה" ו"מדיניות כבודה" זה אותו דבר.
+2. אם מצאת — **ענה במלואה**, בחום ובבהירות. אל תסתפק בהפניה.
+3. אם השאלה נוגעת לכמה נושאים — ענה על כולם.
+4. אם התשובה חלקית — תן את מה שיש לך, ורק על החלק החסר אמור שנציג ישלים.
+5. **רק אם באמת אין כלום במאגר** — אמור: "אני רוצה לוודא שתקבל תשובה מדויקת. אשמח לקחת פרטים ונציג יחזור אליך."
+   ואז בקש שם מלא, טלפון, ונושא הפנייה בקצרה.
+6. סיים: "תודה [שם]! נציג יחזור אליך בהקדם 🙏"
+
+**אל תעביר לנציג** רק כי השאלה נשמעת מורכבת. אם המידע במאגר — ענה.
+**אל תמציא** מידע שאינו במאגר. זה ההבדל היחיד.
 
 ## אסור
 - אל תבטיח מסגרת זמן לחזרת נציג ("תוך שעה" וכדומה) — רק "בהקדם".
@@ -1993,9 +2034,26 @@ app.post('/api/conversations/:id/agent-message', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { phone, message, systemPrompt, sessionId, history, chatType } = req.body;
+    const { phone, message, systemPrompt, sessionId, history, chatType, traffic } = req.body;
     const phoneId = phone ? normalizePhone(phone) : (sessionId || 'web-' + Date.now());
     const reply = await getAIResponse(phoneId, message, systemPrompt);
+
+    // מקור ההגעה — נשמר פעם אחת לשיחה, למדידת קמפיינים
+    if (traffic && (traffic.source || traffic.campaign || traffic.gclid)) {
+      try {
+        const { data: conv } = await supabase.from('conversations')
+          .select('traffic_source').eq('phone', phoneId).maybeSingle();
+        if (!conv?.traffic_source) {
+          await supabase.from('conversations').update({
+            traffic_source:   traffic.source   || null,
+            traffic_medium:   traffic.medium   || null,
+            traffic_campaign: traffic.campaign || null,
+            traffic_gclid:    traffic.gclid    || null,
+            landing_page:     traffic.landing  || null,
+          }).eq('phone', phoneId);
+        }
+      } catch (e) { console.error('[Traffic] שמירה נכשלה:', e.message); }
+    }
     res.json({ reply, message: reply }); // support both d.reply and d.message
   } catch (err) {
     // axios מסתיר את הסיבה בתוך response.data — בלי זה רואים רק "status code 400"
@@ -2043,6 +2101,66 @@ app.post('/api/kb-update', async (req, res) => {
 
 // טעינת רשימת טיולים מ-Supabase
 // רשימת היעדים — לשימוש האדמין
+// דוח קמפיינים — ספירות בלבד, בלי שמות או טלפונים.
+// זה מה שאפשר להעביר לחברת הפרסום.
+app.get('/api/campaign-report', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor']);
+    if (!me) return;
+
+    const days = Math.min(parseInt(req.query.days) || 30, 365);
+    const since = new Date(Date.now() - days * 864e5).toISOString();
+
+    const { data: convs } = await supabase.from('conversations')
+      .select('phone, status, created_at, traffic_source, traffic_medium, traffic_campaign, landing_page, messages')
+      .gte('created_at', since);
+
+    const rows = {};
+    let noSource = 0;
+
+    (convs || []).forEach(c => {
+      const src = c.traffic_source;
+      if (!src) { noSource++; return; }
+
+      const key = [src, c.traffic_medium || '-', c.traffic_campaign || '-'].join(' | ');
+      if (!rows[key]) rows[key] = {
+        source: src,
+        medium: c.traffic_medium || '—',
+        campaign: c.traffic_campaign || '—',
+        conversations: 0, leads: 0, resolved: 0, pages: {}
+      };
+      const r = rows[key];
+      r.conversations++;
+      if (c.status === 'resolved') r.resolved++;
+
+      // ליד = השאיר טלפון בשיחה
+      const txt = (Array.isArray(c.messages) ? c.messages : [])
+        .filter(m => m.role === 'user')
+        .map(m => m.content || '').join(' ');
+      if (/0[5-9][\d\-\s]{7,}/.test(txt)) r.leads++;
+
+      if (c.landing_page) r.pages[c.landing_page] = (r.pages[c.landing_page] || 0) + 1;
+    });
+
+    const report = Object.values(rows)
+      .map(r => ({
+        ...r,
+        conversionRate: r.conversations ? Math.round(r.leads / r.conversations * 100) : 0,
+        topPage: Object.entries(r.pages).sort((a,b) => b[1]-a[1])[0]?.[0] || null,
+        pages: undefined,
+      }))
+      .sort((a, b) => b.leads - a.leads || b.conversations - a.conversations);
+
+    res.json({
+      days,
+      from: since.slice(0, 10),
+      totalConversations: (convs || []).length,
+      withoutSource: noSource,
+      campaigns: report,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/destinations', (req, res) => res.json(DESTINATIONS));
 
 // תיקון ידני של סוג/יעד לטיול
@@ -2081,7 +2199,7 @@ app.get('/api/trips-list', async (req, res) => {
   try {
     const { data: dbTrips } = await supabase.from('trips_list').select('*').order('added_at', { ascending: true });
     const { data: scanned } = await supabase.from('knowledge_base')
-      .select('url, name, scanned_at, category, destination').eq('type', 'trip');
+      .select('url, name, scanned_at, category, destination, scan_error').eq('type', 'trip');
 
     const scannedByUrl = {};
     (scanned || []).forEach(s => { scannedByUrl[s.url] = s; });
@@ -2092,7 +2210,8 @@ app.get('/api/trips-list', async (req, res) => {
       const sc = scannedByUrl[t.url];
       return {
         name: t.name, url: t.url, addedAt: t.added_at,
-        scanned: !!sc,
+        scanned: !!(sc && sc.scanned_at),
+        scanError: sc?.scan_error || null,
         category: sc?.category || null,
         destination: sc?.destination || null,
         destinationLabel: sc?.destination ? destLabel(sc.category || 'cruise', sc.destination) : null,
