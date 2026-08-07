@@ -1439,26 +1439,51 @@ async function loadCacheStatus(){
   try{
     const r=await fetch(API+'/api/cache-status');const d=await r.json();
     const title=document.getElementById('scan-title');const sub=document.getElementById('scan-sub');const prog=document.getElementById('scan-progress');
+
     if(d.isScanning){
       const pct = d.total>0 ? Math.round((d.current/d.total)*100) : 0;
-      title.textContent='🔄 סורק...';
+      title.textContent='🔄 סורק... '+pct+'%';
       sub.textContent='טיול '+d.current+' מתוך '+d.total+(d.currentName?' — '+d.currentName:'');
       prog.style.width=pct+'%';
-      // המשך polling כל שנייה
+      prog.style.background='';
       if(!_scanPoll) _scanPoll=setInterval(loadCacheStatus,1000);
-    } else {
-      if(_scanPoll){clearInterval(_scanPoll);_scanPoll=null;}
-      if(d.hasCache){
-        title.textContent='✅ מאגר עדכני';
-        sub.textContent='נסרק: '+(d.lastScanned?new Date(d.lastScanned).toLocaleString('he-IL'):'—')+' | '+d.contentLength.toLocaleString()+' תווים';
+      return;
+    }
+
+    if(_scanPoll){clearInterval(_scanPoll);_scanPoll=null;}
+
+    // סיכום ברור בסיום — כמה הצליחו, כמה נכשלו, ומי
+    if(d.finishedAt && d.total){
+      var failed=(d.failed||[]).length;
+      var ok=d.ok||0;
+      if(failed){
+        title.textContent='⚠️ הסריקה הסתיימה — '+ok+' מתוך '+d.total+' הצליחו';
+        sub.innerHTML='<span style="color:#b42318">'+failed+' נכשלו: '+
+          (d.failed||[]).slice(0,4).join(' · ')+(failed>4?' ועוד '+(failed-4):'')+'</span>'+
+          '<br><span style="color:#6c757d">'+new Date(d.finishedAt).toLocaleString('he-IL')+'</span>';
         prog.style.width='100%';
-        // עדכן סטטוס "נסרק" לכל הטיולים
-        await loadTripsFromServer();
+        prog.style.background='#f0ad4e';
       } else {
-        title.textContent='⚠️ טרם נסרק';
-        sub.textContent='לחץ "סרוק" כדי לעדכן את הבוט';
-        prog.style.width='0%';
+        title.textContent='✅ הסריקה הסתיימה — כל '+d.total+' הטיולים נסרקו';
+        sub.textContent=new Date(d.finishedAt).toLocaleString('he-IL')+
+          ' · '+(d.contentLength||0).toLocaleString()+' תווים במאגר';
+        prog.style.width='100%';
+        prog.style.background='';
       }
+      await loadTripsFromServer();
+      return;
+    }
+
+    // לפני שנסרק בפעם הראשונה בהרצה הנוכחית
+    if(d.hasCache){
+      title.textContent='✅ מאגר עדכני';
+      sub.textContent='נסרק: '+(d.lastScanned?new Date(d.lastScanned).toLocaleString('he-IL'):'—')+' · '+(d.contentLength||0).toLocaleString()+' תווים';
+      prog.style.width='100%';
+      await loadTripsFromServer();
+    } else {
+      title.textContent='⚠️ טרם נסרק';
+      sub.textContent='לחץ "סרוק" כדי לעדכן את הבוט';
+      prog.style.width='0%';
     }
   }catch(e){}
 }
