@@ -338,7 +338,7 @@
 
       <div id="tb-msgs">
         <div class="tb-msg tb-bot">
-          <div class="tb-bbl">שמח לעזור! מה מביא אותך אלינו?</div>
+          <div class="tb-bbl">ברוכים הבאים לתרבותו! איך אפשר לעזור?</div>
           <div class="tb-time">עכשיו</div>
         </div>
       </div>
