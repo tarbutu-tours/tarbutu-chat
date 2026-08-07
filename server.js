@@ -329,6 +329,7 @@ async function emailAgentNewMessage(agent, phone, text, contactName) {
 // כך אין צורך לקודד מספרי משתמשים בקוד — מספיק שהמייל בטבלת הנציגים
 // תואם למייל שאיתו הנציג רשום במונדיי.
 const _mondayUserCache = {};
+let _mondayAllUsers = null;
 
 async function getMondayUserIdByEmail(email) {
   if (!email) return null;
@@ -336,16 +337,24 @@ async function getMondayUserIdByEmail(email) {
   if (_mondayUserCache[key] !== undefined) return _mondayUserCache[key];
 
   try {
-    const query = `query { users(emails: ["${key}"]) { id name email } }`;
-    const r = await axios.post('https://api.monday.com/v2',
-      { query },
-      { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
-    );
-    const user = r.data?.data?.users?.[0];
+    // שליפת כל המשתמשים והשוואה בקוד — כך אותיות גדולות/קטנות
+    // בכתובת לא משנות. users(emails:) של מונדיי היא התאמה מדויקת.
+    if (!_mondayAllUsers) {
+      const r = await axios.post('https://api.monday.com/v2',
+        { query: 'query { users(limit: 300) { id name email } }' },
+        { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
+      );
+      _mondayAllUsers = r.data?.data?.users || [];
+      console.log('[Monday] נטענו', _mondayAllUsers.length, 'משתמשים');
+    }
+
+    const user = _mondayAllUsers.find(u => (u.email || '').toLowerCase().trim() === key);
     const id = user?.id ? Number(user.id) : null;
     _mondayUserCache[key] = id;
-    if (id) console.log('[Monday] User', user.name, '=', id, '(' + key + ')');
-    else console.warn('[Monday] לא נמצא משתמש עם המייל', key);
+
+    if (id) console.log('[Monday] נציג מטפל:', user.name, '=', id);
+    else console.warn('[Monday] לא נמצא משתמש עם המייל', key,
+                      '| קיימים:', _mondayAllUsers.map(u => u.email).filter(Boolean).join(', ').slice(0, 200));
     return id;
   } catch (e) {
     console.error('[Monday] שגיאה בחיפוש משתמש:', e.message);
@@ -353,6 +362,7 @@ async function getMondayUserIdByEmail(email) {
     return null;
   }
 }
+
 
 async function createServiceMondayItem(phone, text, contactName, agentName, agentEmail) {
   const cleanName = (contactName || phone || 'לקוח').substring(0, 50);
@@ -667,7 +677,7 @@ const TRIPS = [];
 
 let knowledgeCache = null;
 let lastScanTime = null;
-let scanState = { isScanning: false, current: 0, total: 0, currentName: '' };
+let scanState = { isScanning: false, current: 0, total: 0, currentName: '', ok: 0, failed: [], finishedAt: null };
 
 // מחלץ מדף הטיול את המידע שהבוט הכי צריך, ומרכז אותו בראש התוכן
 // כדי שלא ייחתך: מה כולל · תאריכים · אנייה · חברה · למה תרבותו
@@ -885,7 +895,7 @@ async function scanAndSaveTrips() {
     ? dbTrips.map(t => ({ name: t.name, url: t.url }))
     : TRIPS;
 
-  scanState = { isScanning: true, current: 0, total: allTrips.length, currentName: '' };
+  scanState = { isScanning: true, current: 0, total: allTrips.length, currentName: '', ok: 0, failed: [], finishedAt: null };
   console.log('[Scan] Starting scan of', allTrips.length, 'trips...');
 
   let scanned = 0;
@@ -917,6 +927,7 @@ async function scanAndSaveTrips() {
       }], { onConflict: 'url' });
       console.log(`[Scan]   → ${keepManual ? prev.destination + ' (ידני)' : cls.destination || 'ללא יעד'}`);
       scanned++;
+      scanState.ok++;
     } else {
       // הסריקה נכשלה — שומרים את השיוך ומסמנים את הסיבה, כדי שלא ייעלם בשקט
       console.warn(`[Scan]   ✗ לא הוחזר תוכן מ-${trip.url}`);
@@ -930,11 +941,20 @@ async function scanAndSaveTrips() {
         manual_dest: prev?.manual_dest || false,
         scan_error: 'לא הוחזר תוכן מהדף',
       }], { onConflict: 'url' });
+      scanState.failed.push(trip.name);
     }
     await new Promise(r => setTimeout(r, 800));
   }
 
-  scanState = { isScanning: false, current: allTrips.length, total: allTrips.length, currentName: '' };
+  scanState = {
+    isScanning: false,
+    current: allTrips.length,
+    total: allTrips.length,
+    currentName: '',
+    ok: scanState.ok,
+    failed: scanState.failed,
+    finishedAt: new Date().toISOString(),
+  };
   lastScanTime = new Date();
   knowledgeCache = null;
   console.log('[Scan] Done:', scanned, '/', allTrips.length, 'trips scanned');
@@ -2257,6 +2277,9 @@ app.get('/api/cache-status', (req, res) => {
     current: scanState.current,
     total: scanState.total,
     currentName: scanState.currentName,
+    ok: scanState.ok,
+    failed: scanState.failed,
+    finishedAt: scanState.finishedAt,
     contentLength: knowledgeCache ? knowledgeCache.length : 0,
     lastScanned: lastScanTime,
     pagesScanned: scanState.current,
