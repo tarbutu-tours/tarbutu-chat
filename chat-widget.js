@@ -59,7 +59,8 @@
     #tb-chat-root * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
     #tb-chat-root {
       position: fixed;
-      bottom: 24px;
+      /* מעל כפתור הוואטסאפ שיושב ב-bottom:24px בגובה ~56px */
+      bottom: 96px;
       right: 24px;
       z-index: 99999;
       direction: rtl;
@@ -69,6 +70,8 @@
     #tb-window {
       width: 360px;
       height: 520px;
+      /* לא יחרוג מהמסך בלפטופים נמוכים */
+      max-height: calc(100vh - 120px);
       background: #fff;
       border-radius: 18px;
       box-shadow: 0 8px 40px rgba(0,0,0,0.18);
@@ -314,7 +317,7 @@
 
     @media (max-width: 420px) {
       #tb-window { width: 100vw; height: 100vh; border-radius: 0; bottom: 0; right: 0; position: fixed; }
-      #tb-chat-root { bottom: 0; right: 0; }
+      #tb-chat-root { bottom: 74px; right: 16px; }
     }
   `;
   document.head.appendChild(style);
