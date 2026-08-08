@@ -68,6 +68,7 @@
 
     /* ── חלון צ'אט ── */
     #tb-window {
+      position: relative;   /* עוגן לחלון הפרטיות */
       width: 360px;
       height: 520px;
       /* לא יחרוג מהמסך בלפטופים נמוכים */
@@ -310,9 +311,46 @@
       text-align: center;
       font-size: 10px;
       color: #adb5bd;
-      padding: 5px;
+      padding: 5px 8px 7px;
       flex-shrink: 0;
       background: #fff;
+      line-height: 1.5;
+    }
+    #tb-disclaimer {
+      color: #8c959d;
+      font-size: 9.5px;
+    }
+    #tb-privacy-link {
+      color: #1a6fa8;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    /* חלון הפרטיות */
+    #tb-privacy {
+      position: absolute;
+      inset: 0;
+      background: #fff;
+      z-index: 20;
+      display: none;
+      flex-direction: column;
+      padding: 16px 18px;
+      overflow-y: auto;
+      text-align: right;
+    }
+    #tb-privacy.tb-open { display: flex; }
+    #tb-privacy h4 { font-size: 14px; color: #0d4f6c; margin-bottom: 8px; }
+    #tb-privacy p { font-size: 12px; color: #495057; line-height: 1.75; margin-bottom: 8px; }
+    #tb-privacy button {
+      margin-top: 8px;
+      align-self: flex-start;
+      background: #1a6fa8;
+      color: #fff;
+      border: 0;
+      padding: 7px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
     }
 
     @media (max-width: 420px) {
@@ -326,7 +364,7 @@
   const root = document.createElement('div');
   root.id = 'tb-chat-root';
   root.innerHTML = `
-    <div id="tb-window">
+    <div id="tb-window" class="tb-hidden">
       <div id="tb-header">
         <div id="tb-avatar">🚢</div>
         <div id="tb-header-info">
@@ -359,10 +397,23 @@
           oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,90)+'px'"></textarea>
         <button id="tb-send">➤</button>
       </div>
-      <div id="tb-footer">Powered by תרבותו AI</div>
+      <div id="tb-footer">
+        <div id="tb-disclaimer">🤖 עוזר AI — התשובות עשויות להיות לא מדויקות. לפרטים מחייבים פנו לנציג.</div>
+        <span id="tb-privacy-link">פרטיות ותנאי שימוש</span>
+      </div>
+
+      <div id="tb-privacy">
+        <h4>פרטיות ותנאי שימוש</h4>
+        <p><strong>זהו עוזר אוטומטי (AI).</strong> התשובות נוצרות אוטומטית ועשויות להיות לא מדויקות או לא מעודכנות. מחירים, זמינות ופרטי הזמנה מחייבים — יש לאמת מול נציג.</p>
+        <p><strong>איזה מידע נשמר.</strong> תוכן השיחה נשמר במערכות תרבותו. אם תמסור שם וטלפון, הם יישמרו לצורך חזרה אליך ומתן שירות.</p>
+        <p><strong>למה זה משמש.</strong> המידע משמש למענה לפנייתך ולשיפור השירות בלבד, ואינו נמכר לצדדים שלישיים.</p>
+        <p><strong>מה לא לשלוח כאן.</strong> אין למסור בצ'אט פרטי אשראי, מספרי דרכון או מידע רפואי. לנושאים אלה — פנו ישירות לנציג.</p>
+        <p>לשאלות בנושא המידע שנשמר עליך, ניתן לפנות אלינו בכל עת.</p>
+        <button id="tb-privacy-close">הבנתי, חזרה לשיחה</button>
+      </div>
     </div>
 
-    <button id="tb-toggle" title="פתח צ'אט">
+    <button id="tb-toggle" class="tb-show" title="פתח צ'אט">
       💬
       <span id="tb-notif"></span>
     </button>
@@ -553,6 +604,7 @@
     isOpen = false;
     win.classList.add('tb-hidden');
     toggle.classList.add('tb-show');
+    try { sessionStorage.setItem('tarbutu_closed', '1'); } catch (e) {}
   }
 
   // ── Events ─────────────────────────────────────
@@ -564,6 +616,31 @@
   if (stage === 'track') {
     showOptions(['🚢 מתכנן הפלגה חדשה', '💬 יש לי שאלה על טיול שהזמנתי']);
   }
+
+  // פתיחה אוטומטית אחרי 15 שניות — בדסקטופ בלבד.
+  // לא נפתח שוב אם הגולש כבר סגר, ולא במובייל (שם זה מכסה את כל המסך).
+  (function autoOpen() {
+    var isMobile = window.matchMedia('(max-width: 767px)').matches
+                || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobile) return;
+
+    try { if (sessionStorage.getItem('tarbutu_closed')) return; } catch (e) {}
+
+    setTimeout(function () {
+      var alreadyClosed = false;
+      try { alreadyClosed = !!sessionStorage.getItem('tarbutu_closed'); } catch (e) {}
+      if (!isOpen && !alreadyClosed) openChat();
+    }, 15000);
+  })();
+
+  // חלון פרטיות
+  var privacyPanel = document.getElementById('tb-privacy');
+  document.getElementById('tb-privacy-link').addEventListener('click', function () {
+    privacyPanel.classList.add('tb-open');
+  });
+  document.getElementById('tb-privacy-close').addEventListener('click', function () {
+    privacyPanel.classList.remove('tb-open');
+  });
 
   document.getElementById('tb-close-btn').addEventListener('click', closeChat);
   toggle.addEventListener('click', openChat);
