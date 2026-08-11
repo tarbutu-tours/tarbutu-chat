@@ -424,7 +424,7 @@
   let history = [];
   let isTyping = false;
   let unread = 0;
-  let isOpen = true;
+  let isOpen = false;   // החלון נטען סגור — הכפתור גלוי עד שלוחצים או עד הפתיחה האוטומטית
 
   const win    = document.getElementById('tb-window');
   const msgs   = document.getElementById('tb-msgs');
