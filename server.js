@@ -244,8 +244,15 @@ async function getAllConversations() {
 }
 
 async function getAgentByEmail(email) {
-  const { data } = await supabase.from('agents').select('*').eq('email', email.toLowerCase()).single();
-  return data;
+  if (!email) return null;
+  // ניקוי רווחים ואותיות גדולות — משתמשים מדביקים מיילים עם רווח נסתר
+  const clean = String(email).trim().toLowerCase();
+  const { data } = await supabase.from('agents').select('*').eq('email', clean).maybeSingle();
+  if (data) return data;
+
+  // גיבוי: אם נשמר בעבר עם אותיות גדולות או רווח, חיפוש לא רגיש
+  const { data: alt } = await supabase.from('agents').select('*').ilike('email', clean).maybeSingle();
+  return alt || null;
 }
 
 async function getAgentById(id) {
@@ -1104,8 +1111,16 @@ ${destList('cruise')}
 ${destList('river')}
 שלב 3 — הצג את הטיולים של אותו יעד מהמאגר, עם תיאור קצר וקישור.
 שלב 4 — **ענה על שאלות.** זה השלב החשוב. הישאר בשיחה כל עוד שואלים: מה כולל, מתי יוצא, איזו אנייה, מה רואים. אל תמהר לבקש פרטים.
-שלב 5 — כשניכר עניין אמיתי או שנגמרו השאלות, בקש בעדינות: תאריך מועדף, ואז שם מלא, ואז טלפון.
+שלב 5 — כשניכר עניין אמיתי או שנגמרו השאלות, בקש בשאלה אחת:
+"נשמח שנציג יחזור אליך עם כל הפרטים. מה השם המלא והטלפון שלך?"
 סיום: "תודה [שם]! נציג שלנו יחזור אליך בהקדם 😊"
+
+## מה לא לשאול — חשוב
+- **אל תשאל שוב על סוג הטיול** אחרי שהלקוח כבר בחר קרוז או שייט נהרות. אתה כבר יודע מה הוא רוצה — אל תציע לו קטגוריה אחרת ואל תחזור על השאלה.
+- **אל תשאל אם הוא נוסע לבד או בזוג.**
+- **אל תשאל על דרישות מיוחדות** — תזונה, נגישות, בעיות רפואיות. הנציג יברר את זה.
+- **אל תשאל על תאריך מועדף.** התאריכים מופיעים ליד כל טיול, והנציג יסגור את זה.
+- בסוף אתה מבקש **רק שם מלא וטלפון**, ובשאלה אחת.
 
 ## מסלול שירות לקוחות 💬 (למי שכבר הזמין)
 **התפקיד שלך כאן הוא לענות בעצמך.** העברה לנציג היא המוצא האחרון, לא הראשון.
@@ -1393,8 +1408,14 @@ app.post('/api/agents/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const agent = await getAgentByEmail(email);
-    if (!agent) return res.status(401).json({ error: 'פרטי התחברות שגויים' });
-    if (agent.status !== 'approved') return res.status(401).json({ error: 'המשתמש ממתין לאישור' });
+    if (!agent) {
+      console.warn('[Login] לא נמצא משתמש עם המייל:', JSON.stringify(email));
+      return res.status(401).json({ error: 'פרטי התחברות שגויים' });
+    }
+    if (agent.status !== 'approved') {
+      console.warn('[Login] סטטוס לא מאושר:', agent.email, '=', agent.status);
+      return res.status(401).json({ error: 'המשתמש ממתין לאישור' });
+    }
     
     // בדוק סיסמה
     const hashed = hashPassword(password);
@@ -1422,7 +1443,7 @@ app.post('/api/agents/register', async (req, res) => {
     const hashed = hashPassword(password);
     
     await supabase.from('agents').insert([{
-      id, name, email: email.toLowerCase(), password: hashed,
+      id, name: String(name).trim(), email: String(email).trim().toLowerCase(), password: hashed,
       role: 'agent', status: 'pending', availability: 'online',
       created_at: new Date().toISOString()
     }]);
@@ -1487,7 +1508,11 @@ app.post('/api/agents/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
     const agent = await getAgentByEmail(email);
-    if (!agent) return res.json({ success: true, message: 'אם האימייל קיים, נשלח מייל' });
+    if (!agent) {
+      console.warn('[Reset] לא נמצא משתמש עם המייל:', JSON.stringify(email));
+      return res.json({ success: true, message: 'אם האימייל קיים, נשלח מייל' });
+    }
+    console.log('[Reset] נשלח קישור איפוס ל-', agent.email);
     
     const resetToken = generateToken();
     const resetExpiry = new Date(Date.now() + 3600000).toISOString(); // שעה
