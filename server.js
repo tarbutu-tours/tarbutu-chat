@@ -981,6 +981,18 @@ async function getFocusedKnowledge({ category, destination } = {}) {
   if (category)    list = list.filter(t => (t.category || 'cruise') === category);
   if (destination) list = list.filter(t => t.destination === destination);
 
+  // יעד שנבחר אך אין בו טיולים — אומרים לבוט במפורש, אחרת הוא ממציא
+  if (destination && !list.length) {
+    kb += `=== ${destLabel(category, destination)} ===\n`;
+    kb += `אין כרגע טיולים פתוחים להרשמה ליעד הזה — הם בשלבי תכנון.\n`;
+    kb += `אל תציע יעד אחר. הצע רישום לרשימת המתנה בלבד.\n`;
+    if (txt && txt.length) {
+      kb += '\n=== מדיניות ושירות ===\n';
+      txt.forEach(d => { if ((d.content || '').trim()) kb += (d.content || '').trim() + '\n\n'; });
+    }
+    return kb;
+  }
+
   if (destination && list.length) {
     kb += `=== טיולים ל${destLabel(category, destination)} (${list.length}) ===\n`;
     for (const t of list) {
@@ -1033,8 +1045,10 @@ async function getKnowledge() {
 // קורא את השיחה עד כה ומזהה: מסלול (מכירות/שירות), סוג ויעד.
 // זה מה שקובע איזה חלק מהמאגר יישלח לבוט.
 function detectContext(messages) {
-  const text = (messages || [])
-    .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'bot')
+  // רק מה שהלקוח כתב. אם קוראים גם את תשובות הבוט, מילים שהוא הזכיר
+  // ("פיורדים", "הים הבלטי") מחליפות את היעד שהלקוח בחר — וזה מה שקרה בפועל.
+  const userMsgs = (messages || []).filter(m => m.role === 'user');
+  const text = userMsgs
     .map(m => (typeof m.content === 'string' ? m.content : ''))
     .join(' ')
     .toLowerCase();
@@ -1053,17 +1067,17 @@ function detectContext(messages) {
   else if (has('קרוז') || has('הפלגה') || has('בים')) category = 'cruise';
 
   // יעד — נבדק בשני הסוגים אם עוד לא נקבע סוג
+  // סורקים מההודעה האחרונה לראשונה — הבחירה העדכנית של הלקוח גוברת
   let destination = null;
   const search = category ? [category] : ['cruise', 'river'];
-  for (const cat of search) {
-    for (const d of DESTINATIONS[cat]) {
-      if (d.keys.some(k => has(k)) || has(d.label)) {
-        destination = d.id;
-        category = cat;
-        break;
-      }
+  for (let i = userMsgs.length - 1; i >= 0 && !destination; i--) {
+    const msg = (typeof userMsgs[i].content === 'string' ? userMsgs[i].content : '').toLowerCase();
+    for (const cat of search) {
+      const hit = DESTINATIONS[cat].find(d =>
+        msg.includes(d.label.toLowerCase()) || d.keys.some(k => msg.includes(k.toLowerCase()))
+      );
+      if (hit) { destination = hit.id; category = cat; break; }
     }
-    if (destination) break;
   }
 
   return { track: 'sales', category, destination };
@@ -1109,7 +1123,13 @@ async function getAIResponse(phone, userMessage, systemPrompt) {
 ${destList('cruise')}
 שייט נהרות:
 ${destList('river')}
-שלב 3 — הצג את הטיולים של אותו יעד מהמאגר, עם תיאור קצר וקישור.
+שלב 3 — **הצג מיד את הטיולים של אותו יעד**, עם תיאור קצר וקישור. אל תשאל שאלות סינון לפני כן — לא מאיפה יוצאים, לא באילו נמלים, לא איזה נוף. הלקוח בחר יעד; הראה לו מה יש.
+
+**אם אין טיולים ליעד שנבחר** — אל תאמר "אין לנו" ואל תציע יעד אחר. אמור בדיוק כך:
+"ההפלגות שלנו ליעד הזה נמצאות כרגע בשלבי תכנון ועוד לא נפתחו להרשמה. 🗓️
+אשמח לרשום אותך לרשימת ההמתנה — ברגע שהתאריכים ייסגרו, נציג שלנו יחזור אליך ראשון עם כל הפרטים.
+מה השם המלא והטלפון שלך?"
+ואחרי שמסר: "תודה [שם]! רשמנו אותך לרשימת ההמתנה ליעד הזה. נעדכן אותך ברגע שההפלגות ייפתחו 😊"
 שלב 4 — **ענה על שאלות.** זה השלב החשוב. הישאר בשיחה כל עוד שואלים: מה כולל, מתי יוצא, איזו אנייה, מה רואים. אל תמהר לבקש פרטים.
 שלב 5 — כשניכר עניין אמיתי או שנגמרו השאלות, בקש בשאלה אחת:
 "נשמח שנציג יחזור אליך עם כל הפרטים. מה השם המלא והטלפון שלך?"
@@ -1121,6 +1141,13 @@ ${destList('river')}
 - **אל תשאל על דרישות מיוחדות** — תזונה, נגישות, בעיות רפואיות. הנציג יברר את זה.
 - **אל תשאל על תאריך מועדף.** התאריכים מופיעים ליד כל טיול, והנציג יסגור את זה.
 - בסוף אתה מבקש **רק שם מלא וטלפון**, ובשאלה אחת.
+
+## איסורים מוחלטים — קרו בפועל וגרמו לנזק
+- **אל תציע יעד או קטגוריה שהלקוח לא ביקש.** מי שבחר קרוז לא יקבל הצעה לשייט נהרות. מי שבחר את האיים הבריטיים לא יקבל הצעה לקנריים או לים הבלטי.
+- **אל תשער ואל תנחש.** אסור לכתוב "עשוי לעצור", "ייתכן שכולל", "כנראה מבקר ב". אם זה לא כתוב במאגר — אתה לא יודע את זה.
+- **אל תמציא נמלים, ערים או מסלולים** שאינם מופיעים בתוכן הטיול.
+- **היעד שהלקוח בחר הוא היעד.** גם אם השיחה נמשכת, אל תעבור ליעד אחר אלא אם הלקוח ביקש זאת במפורש.
+- כתוב בעברית תקנית. אל תכתוב "אני יקח" או "יבדוק אם יש" בשגיאות.
 
 ## מסלול שירות לקוחות 💬 (למי שכבר הזמין)
 **התפקיד שלך כאן הוא לענות בעצמך.** העברה לנציג היא המוצא האחרון, לא הראשון.
