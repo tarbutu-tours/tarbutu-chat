@@ -1044,7 +1044,19 @@ async function getKnowledge() {
 
 // קורא את השיחה עד כה ומזהה: מסלול (מכירות/שירות), סוג ויעד.
 // זה מה שקובע איזה חלק מהמאגר יישלח לבוט.
-function detectContext(messages) {
+function detectContext(messages, choice) {
+  // בחירה מפורשת מהכפתורים גוברת על ניחוש מהטקסט
+  if (choice && choice.track) {
+    if (choice.track === 'service') return { track: 'service' };
+    let destId = null;
+    const cat = choice.category || null;
+    if (choice.destination && cat) {
+      const hit = (DESTINATIONS[cat] || []).find(d => d.label === choice.destination);
+      if (hit) destId = hit.id;
+    }
+    if (cat) return { track: 'sales', category: cat, destination: destId };
+  }
+
   // רק מה שהלקוח כתב. אם קוראים גם את תשובות הבוט, מילים שהוא הזכיר
   // ("פיורדים", "הים הבלטי") מחליפות את היעד שהלקוח בחר — וזה מה שקרה בפועל.
   const userMsgs = (messages || []).filter(m => m.role === 'user');
@@ -1083,14 +1095,14 @@ function detectContext(messages) {
   return { track: 'sales', category, destination };
 }
 
-async function getAIResponse(phone, userMessage, systemPrompt) {
+async function getAIResponse(phone, userMessage, systemPrompt, choice) {
   console.log('[AI] Request from', phone, ':', userMessage.slice(0, 50));
   const conv = await getConversation(phone);
   const history = conv?.messages || [];
   const updatedHistory = [...history, { role: 'user', content: userMessage }];
   
   // מאגר ממוקד לפי ההקשר שהתגלה בשיחה — במקום חיתוך גס של כל המאגר
-  const ctx = detectContext(updatedHistory);
+  const ctx = detectContext(updatedHistory, choice);
   const kb = ctx.track === 'service'
     ? await getServiceKnowledge()
     : await getFocusedKnowledge({ category: ctx.category, destination: ctx.destination });
@@ -1131,8 +1143,10 @@ ${destList('river')}
 מה השם המלא והטלפון שלך?"
 ואחרי שמסר: "תודה [שם]! רשמנו אותך לרשימת ההמתנה ליעד הזה. נעדכן אותך ברגע שההפלגות ייפתחו 😊"
 שלב 4 — **ענה על שאלות.** זה השלב החשוב. הישאר בשיחה כל עוד שואלים: מה כולל, מתי יוצא, איזו אנייה, מה רואים. אל תמהר לבקש פרטים.
-שלב 5 — כשניכר עניין אמיתי או שנגמרו השאלות, בקש בשאלה אחת:
-"נשמח שנציג יחזור אליך עם כל הפרטים. מה השם המלא והטלפון שלך?"
+שלב 5 — **אחרי 3-4 שאלות של הלקוח** (או מוקדם יותר אם ניכר עניין ברור), בקש בשאלה אחת:
+"אשמח שנציג יחזור אליך עם כל הפרטים המדויקים. מה השם המלא והטלפון שלך?"
+
+**בקש פעם אחת בלבד.** אם הלקוח מתעלם וממשיך לשאול — המשך לענות לו בנעימות כרגיל, ואל תחזור על הבקשה. אדם שרוצה למסור פרטים ימסור; לחץ חוזר רק גורם לו לעזוב.
 סיום: "תודה [שם]! נציג שלנו יחזור אליך בהקדם 😊"
 
 ## מה לא לשאול — חשוב
@@ -1218,33 +1232,45 @@ ${kb}`;
   
   // Detect if user left contact details
   const cleanMsg = userMessage.replace(/[-\s]/g, '');
-  const phonePattern = /05[0-9]{8}/;
+  // תופס גם 054-480-4356, 054 480 4356, +972544804356 וקווי 03/04/08/09
+  const phonePattern = /(?:\+?972[-\s]?|0)(?:5[0-9]|[2-4]|[8-9]|77)[-\s]?\d{3}[-\s]?\d{4}/;
   const hasPhone = phonePattern.test(cleanMsg);
   if (hasPhone) {
     const allText = updatedHistory.map(m => m.role === 'user' ? m.content : '').join(' ');
-    const detectedPhone = cleanMsg.match(phonePattern)?.[0] || '';
+    let detectedPhone = cleanMsg.match(phonePattern)?.[0] || '';
+    detectedPhone = detectedPhone.replace(/[-\s]/g, '');           // הסרת מקפים ורווחים
+    if (detectedPhone.startsWith('+972')) detectedPhone = '0' + detectedPhone.slice(4);
+    else if (detectedPhone.startsWith('972')) detectedPhone = '0' + detectedPhone.slice(3);
     
     // Try to extract name - various patterns
     let detectedName = 'לקוח מהבוט';
     const namePatterns = [
       /שמ[יי]\s+([א-ת]+(?:\s+[א-ת]+)?)/,
+      /קוראים\s+לי\s+([א-ת]+(?:\s+[א-ת]+)?)/,
+      /([א-ת]{2,}\s+[א-ת]{2,})[\s,.]*(?:\+?972|0)[2-9]/,   // "יורם נהרי 054..."
+      /^([א-ת]{2,}\s+[א-ת]{2,})[\s,.]*$/m,                  // שורה עם שם בלבד
       /([א-ת]{2,}\s+[א-ת]{2,})\s+05/,
-      /^([א-ת]{2,}(?:\s+[א-ת]{2,})?)\s+05/m,
     ];
+    // מילים שנצמדות לטלפון אך אינן חלק מהשם
+    const STOP = ['טל','טלפון','נייד','פלאפון','אפשר','בטלפון','שלי','מספר','לחזרה','והטלפון'];
     for (const pattern of namePatterns) {
       const match = allText.match(pattern);
-      if (match) { detectedName = match[1]; break; }
+      if (!match) continue;
+      const words = match[1].trim().split(/\s+/).filter(w => !STOP.includes(w));
+      if (words.length) { detectedName = words.join(' '); break; }
     }
     
     const summary = updatedHistory.map(m => (m.role === 'user' ? 'לקוח: ' : 'בוט: ') + m.content).join(' | ').slice(0, 500);
     
-    // Check if this is a service inquiry (support) or sales
-    const allTextFull = updatedHistory.map(m => m.content).join(' ');
-    const isService = allTextFull.includes('שירות') || allTextFull.includes('בעיה') || 
-                      allTextFull.includes('ביטול') || allTextFull.includes('שאלה') ||
-                      allTextFull.includes('הזמנה') || allTextFull.includes('מסמך') ||
-                      phone.includes('tc_') === false && allTextFull.includes('🎧');
-    
+    // מכירות או שירות — לפי אותו זיהוי שמזין את המאגר.
+    // הבדיקה הקודמת חיפשה מילים כמו "שאלה" ו"הזמנה" בכל השיחה, כולל בתשובות
+    // הבוט — והוא כותב אותן בכל שיחת מכירות. לכן לידים הלכו למונדיי בטעות.
+    const ctxLead = detectContext(updatedHistory, choice);
+    const isService = ctxLead.track === 'service';
+    console.log('[Lead]', isService ? 'שירות → Monday' : 'מכירות → Pipedrive',
+                '|', detectedName, detectedPhone,
+                ctxLead.destination ? '| יעד: ' + ctxLead.destination : '');
+
     if (isService) {
       createMondayItem(detectedName, detectedPhone, summary).catch(console.error);
     } else {
@@ -1753,6 +1779,133 @@ app.delete('/api/agents/:id', async (req, res) => {
 
 // ── WA Conversations ──────────────────────────────────────
 
+// ── שיחות מהצ'אט באתר ─────────────────────────────────────
+// מזוהות לפי הקידומת web- או tc_. הופרדו מרשימת הוואטסאפ.
+
+const isWebChatId = (p) => !!p && (p.startsWith('tc_') || p.startsWith('web-') || p.startsWith('diag'));
+
+app.get('/api/conversations', async (req, res) => {
+  try {
+    const convs = await getAllConversations();
+    const agents = await getAllAgents().catch(() => []);
+    const agentMap = {};
+    agents.forEach(a => { agentMap[a.id] = a.name; });
+    agentMap['admin-1'] = 'מחלקת אופרציה';
+
+    const list = convs
+      .filter(c => isWebChatId(c.phone))
+      .map(c => ({
+        id: c.phone,
+        phone: c.phone,
+        contact_name: c.contact_name || null,
+        status: c.status || 'new',
+        messages: c.messages || [],
+        history: c.messages || [],          // שם השדה שהאדמין מצפה לו
+        last_message: c.last_message || '',
+        updated_at: c.updated_at || c.created_at,
+        created_at: c.created_at,
+        assigned_agent: c.assigned_agent || null,
+        assignedAgentName: c.assigned_agent ? (agentMap[c.assigned_agent] || 'נציג') : null,
+        agent_takeover: c.agent_takeover || false,
+        agentMode: !!c.agent_takeover,      // שם השדה שהאדמין מצפה לו
+        chatType: (c.messages || []).some(m => m.role === 'user' && /הזמנתי|שירות/.test(m.content || '')) ? 'support' : 'sales',
+        traffic_source: c.traffic_source || null,
+        traffic_campaign: c.traffic_campaign || null,
+      }))
+      .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+
+    res.json(list);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// הודעות שיחה עבור הווידג'ט — ציבורי, אך רק לפי מזהה סשן מלא (לא ניתן לניחוש)
+app.get('/api/conversations/:id/messages', async (req, res) => {
+  try {
+    const id = decodeURIComponent(req.params.id);
+    if (!isWebChatId(id)) return res.status(404).json({ error: 'לא נמצא' });
+    const conv = await getConversation(id);
+    if (!conv) return res.json({ messages: [], agent_takeover: false });
+    res.json({
+      messages: (conv.messages || []).filter(m => m.role === 'agent' || m.role === 'system'),
+      agent_takeover: !!conv.agent_takeover,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// מחיקת שיחת בוט — מנהל מערכת בלבד
+app.delete('/api/conversations/:id', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin']);
+    if (!me) return;
+    const id = decodeURIComponent(req.params.id);
+    await supabase.from('conversations').delete().eq('phone', id);
+    console.log('[Bot] שיחה נמחקה:', id, 'על ידי', me.name);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// השתלטות נציג — מכאן הבוט מפסיק לענות
+app.post('/api/conversations/:id/takeover', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor', 'agent']);
+    if (!me) return;
+    const id = decodeURIComponent(req.params.id);
+    const { release } = req.body;
+
+    if (release) {
+      await upsertConversation(id, { agent_takeover: false });
+      console.log('[Bot] הבוט הוחזר לשיחה:', id);
+      return res.json({ success: true, takeover: false });
+    }
+
+    const conv = await getConversation(id);
+    const msgs = Array.isArray(conv?.messages) ? conv.messages : [];
+    msgs.push({
+      role: 'system',
+      content: `${me.name} הצטרף לשיחה`,
+      time: new Date().toISOString(),
+    });
+
+    await upsertConversation(id, {
+      agent_takeover: true,
+      assigned_agent: me.id,
+      status: 'open',
+      messages: msgs,
+    });
+    console.log('[Bot] השתלטות:', me.name, 'על', id);
+    res.json({ success: true, takeover: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// שליחת הודעה מנציג לשיחת בוט
+app.post('/api/conversations/:id/send', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor', 'agent']);
+    if (!me) return;
+    const id = decodeURIComponent(req.params.id);
+    const { message } = req.body;
+    if (!message || !message.trim()) return res.status(400).json({ error: 'הודעה ריקה' });
+
+    const conv = await getConversation(id);
+    const msgs = Array.isArray(conv?.messages) ? conv.messages : [];
+    msgs.push({
+      role: 'agent',
+      content: message.trim(),
+      agentName: me.name,
+      time: new Date().toISOString(),
+    });
+
+    await upsertConversation(id, {
+      messages: msgs,
+      last_message: message.trim(),
+      agent_takeover: true,
+      assigned_agent: conv?.assigned_agent || me.id,
+      status: 'open',
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/wa-conversations', async (req, res) => {
   try {
     const convs = await getAllConversations();
@@ -1771,7 +1924,9 @@ app.get('/api/wa-conversations', async (req, res) => {
     agents.forEach(a => { agentMap[a.id] = a.name; });
     agentMap['admin-1'] = 'מחלקת אופרציה';
     
-    const waConvs = convs.filter(c => c.phone && !c.phone.startsWith('tc_'));
+    // שיחות אתר (web-/tc_) שייכות ללשונית הבוט, לא לוואטסאפ
+    const isWebChat = (p) => p.startsWith('tc_') || p.startsWith('web-') || p.startsWith('diag');
+    const waConvs = convs.filter(c => c.phone && !isWebChat(c.phone));
     res.json(waConvs.map(c => ({
       phone: c.phone,
       name: c.contact_name || c.phone,
@@ -2106,9 +2261,23 @@ app.post('/api/conversations/:id/agent-message', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { phone, message, systemPrompt, sessionId, history, chatType, traffic } = req.body;
+    const { phone, message, systemPrompt, sessionId, history, chatType, traffic, choice } = req.body;
     const phoneId = phone ? normalizePhone(phone) : (sessionId || 'web-' + Date.now());
-    const reply = await getAIResponse(phoneId, message, systemPrompt);
+    // אם נציג השתלט — הבוט שותק. ההודעה נשמרת והנציג יענה מהאדמין.
+    const existingConv = await getConversation(phoneId).catch(() => null);
+    if (existingConv?.agent_takeover) {
+      const msgs = Array.isArray(existingConv.messages) ? existingConv.messages : [];
+      msgs.push({ role: 'user', content: message, time: new Date().toISOString(), channel: 'web' });
+      await upsertConversation(phoneId, {
+        messages: msgs,
+        last_message: message,
+        status: existingConv.status === 'resolved' ? 'open' : (existingConv.status || 'open'),
+      });
+      console.log('[Chat] נציג בשיחה — הבוט שותק:', phoneId);
+      return res.json({ reply: null, message: null, agentHandling: true });
+    }
+
+    const reply = await getAIResponse(phoneId, message, systemPrompt, choice);
 
     // מקור ההגעה — נשמר פעם אחת לשיחה, למדידת קמפיינים
     if (traffic && (traffic.source || traffic.campaign || traffic.gclid)) {
