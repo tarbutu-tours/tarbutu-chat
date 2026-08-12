@@ -1041,6 +1041,7 @@ function renderBotChat(conv) {
         ${conv.agentMode
           ?'<button class="btn btn-sm btn-outline" onclick="releaseConv(\''+conv.id+'\')"><i class="ti ti-robot"></i> החזר לבוט</button>'
           :'<button class="btn btn-sm btn-success" onclick="takeoverConv(\''+conv.id+'\')"><i class="ti ti-hand-stop"></i> כנס לשיחה</button>'}
+        ${currentAgent.role==='admin'?'<button class="btn btn-sm btn-danger" onclick="deleteBotConv(\''+conv.id+'\')" title="מחק שיחה"><i class="ti ti-trash"></i></button>':''}
       </div>
     </div>
     <div class="msgs" id="bot-msgs-${conv.id}">
@@ -1055,12 +1056,47 @@ function renderBotChat(conv) {
   if (el) el.scrollTop = el.scrollHeight;
 }
 
-async function takeoverConv(id){await fetch(API+'/api/conversations/'+id+'/takeover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentName:currentAgent.name})});openBotConv(id);}
-async function releaseConv(id){await fetch(API+'/api/conversations/'+id+'/release',{method:'POST'});openBotConv(id);}
+async function takeoverConv(id){
+  try{
+    var r=await fetch(API+'/api/conversations/'+encodeURIComponent(id)+'/takeover',{
+      method:'POST',headers:{'Content-Type':'application/json','x-auth-token':authToken},body:JSON.stringify({})});
+    if(!r.ok){var d=await r.json();showToast(d.error||'ההשתלטות נכשלה');return;}
+    showToast('נכנסת לשיחה — הבוט הפסיק לענות');
+    loadAllConversations(); openBotConv(id);
+  }catch(e){showToast('ההשתלטות נכשלה');}
+}
+
+async function releaseConv(id){
+  try{
+    var r=await fetch(API+'/api/conversations/'+encodeURIComponent(id)+'/takeover',{
+      method:'POST',headers:{'Content-Type':'application/json','x-auth-token':authToken},body:JSON.stringify({release:true})});
+    if(!r.ok){showToast('הפעולה נכשלה');return;}
+    showToast('הבוט חזר לענות');
+    loadAllConversations(); openBotConv(id);
+  }catch(e){showToast('הפעולה נכשלה');}
+}
+
 async function sendBotMsg(id){
   var inp=document.getElementById('bot-input');var msg=inp.value.trim();if(!msg)return;inp.value='';
-  await fetch(API+'/api/conversations/'+id+'/agent-message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,agentName:currentAgent.name})});
-  openBotConv(id);
+  try{
+    var r=await fetch(API+'/api/conversations/'+encodeURIComponent(id)+'/send',{
+      method:'POST',headers:{'Content-Type':'application/json','x-auth-token':authToken},body:JSON.stringify({message:msg})});
+    if(!r.ok){var d=await r.json();showToast(d.error||'השליחה נכשלה');return;}
+    openBotConv(id);
+  }catch(e){showToast('השליחה נכשלה');}
+}
+
+async function deleteBotConv(id){
+  if(!confirm('למחוק את השיחה? הפעולה אינה הפיכה.'))return;
+  try{
+    var r=await fetch(API+'/api/conversations/'+encodeURIComponent(id),{
+      method:'DELETE',headers:{'x-auth-token':authToken}});
+    var d=await r.json();
+    if(!r.ok){showToast(d.error||'המחיקה נכשלה');return;}
+    showToast('השיחה נמחקה');
+    document.getElementById('chat-area').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#adb5bd">בחר שיחה</div>';
+    loadAllConversations();
+  }catch(e){showToast('המחיקה נכשלה');}
 }
 
 function showModal(id) { document.getElementById(id).classList.add('show'); }
