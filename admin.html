@@ -865,12 +865,14 @@ function renderConvList() {
         </div>
       </div>`).join('');
   } else {
-    var blist = (window._botList || []).filter(c => c.id && c.id.startsWith('tc_'));
+    // כל מה שהשרת החזיר כאן הוא כבר שיחת בוט — הסינון הישן חיפש tc_ בלבד
+    // והחדשות הן web-, ולכן הן נעלמו מהרשימה למרות שנספרו במונה.
+    var blist = (window._botList || []).filter(c => c.id);
     if (!blist.length) { el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:#adb5bd;font-size:12px">אין שיחות בוט</div>'; return; }
     el.innerHTML = blist.map(c=>`
       <div class="conv-item ${c.id===activeConvId?'active-conv':''}" onclick="openBotConv('${c.id}')">
         <div class="conv-name" style="display:flex;align-items:center;justify-content:space-between">
-          <span><i class="ti ti-robot" style="font-size:12px;color:var(--p)"></i> שיחה מבוט</span>
+          <span><i class="ti ti-robot" style="font-size:12px;color:var(--p)"></i> ${c.contact_name || 'שיחה מהאתר'}${c.traffic_campaign?' · '+c.traffic_campaign:''}</span>
           <button class="btn btn-sm btn-danger" style="padding:2px 6px;font-size:10px" onclick="event.stopPropagation();deleteBotConv('${c.id}')"><i class="ti ti-trash"></i></button>
         </div>
         <div class="conv-preview">${c.last_message||c.lastMessage||'שיחה'}</div>
