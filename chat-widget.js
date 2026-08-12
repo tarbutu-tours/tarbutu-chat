@@ -164,6 +164,8 @@
       padding: 9px 13px;
       border-radius: 14px;
       font-size: 13px;
+      /* גופן אמוג'י ייעודי — בגודל גדול יותר מהטקסט, כי ברירת המחדל קטנה מדי */
+      font-family: 'Segoe UI', Arial, 'Apple Color Emoji', 'Noto Color Emoji', 'Segoe UI Emoji', sans-serif;
       line-height: 1.55;
       word-break: break-word;
       white-space: pre-wrap;
@@ -340,6 +342,7 @@
     #tb-privacy.tb-open { display: flex; }
     #tb-privacy h4 { font-size: 14px; color: #0d4f6c; margin-bottom: 8px; }
     #tb-privacy p { font-size: 12px; color: #495057; line-height: 1.75; margin-bottom: 8px; }
+    .tb-emo { font-size: 1.45em; line-height: 1; vertical-align: -0.12em; }
     #tb-privacy button {
       margin-top: 8px;
       align-self: flex-start;
@@ -440,10 +443,24 @@
     return new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
   }
 
+  // מגדיל אמוג'ים ומנטרל HTML שהוזרק בטקסט
+  function formatBubble(text) {
+    var safe = String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    // עוטף כל אמוג'י כדי להציג אותו גדול יותר
+    safe = safe.replace(
+      /(\p{Extended_Pictographic}(?:\uFE0F)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F)?)*)/gu,
+      '<span class="tb-emo">$1</span>'
+    );
+    return safe.replace(/\n/g, '<br>');
+  }
+
   function appendMsg(role, text) {
     const div = document.createElement('div');
     div.className = 'tb-msg ' + (role === 'user' ? 'tb-user' : 'tb-bot');
-    div.innerHTML = `<div class="tb-bbl">${text.replace(/\n/g,'<br>')}</div><div class="tb-time">${nowTime()}</div>`;
+    div.innerHTML = `<div class="tb-bbl">${formatBubble(text)}</div><div class="tb-time">${nowTime()}</div>`;
     msgs.appendChild(div);
     msgs.scrollTop = msgs.scrollHeight;
 
@@ -462,6 +479,31 @@
     if (show) msgs.scrollTop = msgs.scrollHeight;
   }
 
+  // ── מענה נציג ──────────────────────────────────
+  // כשנציג משתלט, הבוט שותק. הווידג'ט בודק כל 5 שניות אם הנציג ענה.
+  var agentPoll = null;
+  var seenAgentMsgs = 0;
+
+  function startAgentPolling() {
+    if (agentPoll) return;
+    agentPoll = setInterval(async function () {
+      try {
+        const r = await fetch(API + '/api/conversations/' + encodeURIComponent(SESSION_KEY) + '/messages');
+        if (!r.ok) return;
+        const d = await r.json();
+        const agentMsgs = (d.messages || []).filter(m => m.role === 'agent' || m.role === 'system');
+        if (agentMsgs.length > seenAgentMsgs) {
+          agentMsgs.slice(seenAgentMsgs).forEach(function (m) {
+            appendMsg('bot', m.role === 'system' ? m.content : m.content);
+            history.push({ role: 'assistant', content: m.content });
+          });
+          seenAgentMsgs = agentMsgs.length;
+        }
+        if (d.agent_takeover === false) { clearInterval(agentPoll); agentPoll = null; }
+      } catch (e) {}
+    }, 5000);
+  }
+
   // ── שלבי הכפתורים ──────────────────────────────
   // שלושת השלבים הראשונים נבחרים בלחיצה. אחריהם — מלל חופשי.
   const CRUISE_DESTS = [
@@ -474,6 +516,8 @@
   ];
 
   let stage = 'track';   // track → type → dest → free
+  // הבחירות נשמרות כערכים מפורשים ונשלחות לשרת — עדיף על ניחוש מהטקסט
+  var choice = { track: null, category: null, destination: null };
 
   function showOptions(opts) {
     const wrap = document.createElement('div');
@@ -504,10 +548,12 @@
 
     if (stage === 'track') {
       if (label.indexOf('הזמנתי') !== -1) {
+        choice.track = 'service';
         stage = 'free';
         input.placeholder = 'איך אפשר לעזור?';
         botSay('בשמחה. ספר לי בקצרה במה מדובר, ואשתדל לעזור.');
       } else {
+        choice.track = 'sales';
         stage = 'type';
         botSay('נהדר! מה מעניין אותך?');
         setTimeout(function () { showOptions(['🚢 קרוז בים', '🛶 שייט נהרות באירופה']); }, 350);
@@ -518,12 +564,14 @@
     if (stage === 'type') {
       stage = 'dest';
       const isRiver = label.indexOf('נהרות') !== -1;
+      choice.category = isRiver ? 'river' : 'cruise';
       botSay('לאיזה יעד?');
       setTimeout(function () { showOptions(isRiver ? RIVER_DESTS : CRUISE_DESTS); }, 350);
       return;
     }
 
     if (stage === 'dest') {
+      choice.destination = label;
       stage = 'free';
       input.placeholder = 'כתוב הודעה...';
       sendToBot(label);   // מכאן הבוט מציג את הטיולים של היעד
@@ -562,6 +610,7 @@
         body: JSON.stringify({
           message: text,
           sessionId: SESSION_KEY,
+          choice: choice,
           traffic: TRAFFIC,
           history: history.slice(-20),
           chatType: stage === 'free' ? 'auto' : 'sales',
@@ -577,9 +626,19 @@
         return;
       }
 
+      setTyping(false);
+
+      // נציג השתלט על השיחה — אין תשובת בוט, מתחילים להאזין לתשובות שלו
+      if (d.agentHandling) {
+        if (!agentPoll) {
+          appendMsg('bot', 'נציג שלנו הצטרף לשיחה ויענה לך כאן 👤');
+          startAgentPolling();
+        }
+        return;
+      }
+
       const reply = d.reply || d.message;
       history.push({ role: 'assistant', content: reply });
-      setTyping(false);
       appendMsg('bot', reply);
     } catch (e) {
       console.error('[Tarbutu Chat] שגיאת חיבור:', e);
