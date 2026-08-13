@@ -1657,15 +1657,6 @@ function showForgotPassword() {
     .catch(() => showAuthMsg('שגיאה', 'err'));
 }
 
-async function deleteBotConv(id) {
-  if (!confirm('למחוק שיחת בוט זו?')) return;
-  await fetch('/api/conversations/' + id, { method: 'DELETE' });
-  showToast('שיחת בוט נמחקה ✅');
-  activeConvId = null;
-  document.getElementById('chat-area').innerHTML = '<div class="chat-empty"><i class="ti ti-message-dots"></i><span>בחר שיחה מהרשימה</span></div>';
-  loadAllConversations();
-}
-
 async function sendFileToCustomer(phone) {
   var choice = confirm('לחץ OK להעלאת קובץ מהמחשב\nלחץ Cancel לשלוח קישור (URL)');
   if (choice) {
