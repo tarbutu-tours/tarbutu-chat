@@ -1020,7 +1020,8 @@ async function openBotConv(id) {
   activeConvId = id; currentPhone = null;
   clearInterval(convPoll);
   try {
-    var r = await fetch(API+'/api/conversations/'+id);
+    var r = await fetch(API+'/api/conversations/'+encodeURIComponent(id), { headers:{'x-auth-token':authToken} });
+    if(!r.ok){ showToast('טעינת השיחה נכשלה'); return; }
     renderBotChat(await r.json());
     convPoll = setInterval(function() { refreshBotChat(id); }, 3000);
   } catch(e) {}
@@ -1028,7 +1029,7 @@ async function openBotConv(id) {
 
 async function refreshBotChat(id) {
   if (activeConvId !== id) return;
-  try { var r=await fetch(API+'/api/conversations/'+id); renderBotChat(await r.json()); } catch(e) {}
+  try { var r=await fetch(API+'/api/conversations/'+encodeURIComponent(id), { headers:{'x-auth-token':authToken} }); if(r.ok) renderBotChat(await r.json()); } catch(e) {}
 }
 
 function renderBotChat(conv) {
