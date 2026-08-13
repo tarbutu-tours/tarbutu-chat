@@ -65,6 +65,12 @@ const SERVICE_AGENTS = new Set([
   'agent-1784701113063', // ערן יום טוב
 ]);
 
+// נציגי מכירות — הקצאה אליהם פותחת דיל בפייפדרייב
+const SALES_AGENTS = new Set([
+  'agent-1783347049009', // אבי צבאן
+  'agent-1',             // רחל זלקה
+]);
+
 // ── מיפוי נציגים: שם ב-Pipedrive → מזהה נציג ב-Supabase ──
 const AGENT_MAP = {
   'AVI': 'agent-1783347049009',
@@ -102,40 +108,80 @@ async function sendEmail(to, subject, html) {
 
 // ── Pipedrive ─────────────────────────────────────────────
 
-async function createPipedriveLead(name, phone, summary) {
+async function createPipedriveLead(name, phone, summary, opts = {}) {
+  const source = opts.source || 'בוט';           // 'בוט' או 'וואטסאפ'
+  const ownerId = opts.ownerId || null;          // מזהה הנציג בפייפדרייב
   try {
-    // 1. Create person
-    const personRes = await axios.post(
-      `https://api.pipedrive.com/v1/persons?api_token=${PIPEDRIVE_TOKEN}`,
-      { name, phone: [{ value: phone, primary: true }] }
-    );
-    const personId = personRes.data.data?.id;
+    // אדם — אם כבר קיים לפי הטלפון, לא מכפילים
+    let personId = null;
+    if (phone) {
+      try {
+        const found = await axios.get(
+          `https://api.pipedrive.com/v1/persons/search?term=${encodeURIComponent(phone)}&fields=phone&exact_match=false&api_token=${PIPEDRIVE_TOKEN}`
+        );
+        personId = found.data?.data?.items?.[0]?.item?.id || null;
+      } catch (e) {}
+    }
+    if (!personId) {
+      const personRes = await axios.post(
+        `https://api.pipedrive.com/v1/persons?api_token=${PIPEDRIVE_TOKEN}`,
+        { name, phone: [{ value: phone, primary: true }] }
+      );
+      personId = personRes.data.data?.id;
+    }
 
-    // 2. Create deal
+    // דיל
+    const dealBody = {
+      title: `פנייה מ${source} — ${name}`,
+      stage_id: PIPEDRIVE_STAGE_ID,
+      person_id: personId,
+      '862b7d3afb751251d1d3dee296f39949da0ca889': 298,
+    };
+    if (ownerId) dealBody.user_id = ownerId;
+
     const dealRes = await axios.post(
-      `https://api.pipedrive.com/v1/deals?api_token=${PIPEDRIVE_TOKEN}`,
-      {
-        title: `פנייה מבוט — ${name}`,
-        stage_id: PIPEDRIVE_STAGE_ID,
-        person_id: personId,
-        '862b7d3afb751251d1d3dee296f39949da0ca889': 298, // מקור הגעה = בוט
-      }
+      `https://api.pipedrive.com/v1/deals?api_token=${PIPEDRIVE_TOKEN}`, dealBody
     );
     const dealId = dealRes.data.data?.id;
 
-    // 3. Add note to deal
     if (dealId && summary) {
       await axios.post(
         `https://api.pipedrive.com/v1/notes?api_token=${PIPEDRIVE_TOKEN}`,
-        {
-          content: `מקור: בוט תרבותו\n\n${summary}`,
-          deal_id: dealId,
-        }
+        { content: `מקור: ${source} — תרבותו\n\n${summary}`, deal_id: dealId }
       );
     }
-    console.log(`[Pipedrive] Lead created for ${name} ${phone}`);
+    console.log(`[Pipedrive] דיל ${dealId} נוצר עבור ${name} ${phone} (${source})`);
+    return dealId;
   } catch (err) {
-    console.error('[Pipedrive] Error:', err.response?.data || err.message);
+    console.error('[Pipedrive] שגיאה:', err.response?.data || err.message);
+    return null;
+  }
+}
+
+// מזהה נציג בפייפדרייב לפי המייל שלו — כדי לשייך את הדיל לבעלים הנכון
+const _pdUserCache = {};
+let _pdAllUsers = null;
+
+async function getPipedriveUserIdByEmail(email) {
+  if (!email) return null;
+  const key = email.toLowerCase().trim();
+  if (_pdUserCache[key] !== undefined) return _pdUserCache[key];
+  try {
+    if (!_pdAllUsers) {
+      const r = await axios.get(`https://api.pipedrive.com/v1/users?api_token=${PIPEDRIVE_TOKEN}`);
+      _pdAllUsers = r.data?.data || [];
+      console.log('[Pipedrive] נטענו', _pdAllUsers.length, 'משתמשים');
+    }
+    const u = _pdAllUsers.find(x => (x.email || '').toLowerCase().trim() === key);
+    const id = u?.id || null;
+    _pdUserCache[key] = id;
+    if (id) console.log('[Pipedrive] נציג', u.name, '=', id);
+    else console.warn('[Pipedrive] לא נמצא משתמש עם המייל', key);
+    return id;
+  } catch (e) {
+    console.error('[Pipedrive] שגיאה בחיפוש משתמש:', e.message);
+    _pdUserCache[key] = null;
+    return null;
   }
 }
 
@@ -1274,7 +1320,7 @@ ${kb}`;
     if (isService) {
       createMondayItem(detectedName, detectedPhone, summary).catch(console.error);
     } else {
-      createPipedriveLead(detectedName, detectedPhone, summary).catch(console.error);
+      createPipedriveLead(detectedName, detectedPhone, summary, { source: 'בוט' }).catch(console.error);
     }
   }
   
@@ -2128,6 +2174,44 @@ app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
       emailAgentNewMessage(agent, phone, lastMsg, conv?.contact_name)
         .catch(e => console.error('[Assign] Email failed:', e.message));
     } catch(e) { console.error('[Assign] Notify error:', e.message); }
+
+    // הוקצה לנציג מכירות — פתח דיל בפייפדרייב
+    if (SALES_AGENTS.has(agentId)) {
+      (async () => {
+        try {
+          const conv = await getConversation(phone);
+          if (conv?.pipedrive_deal_id) {
+            console.log('[Pipedrive] דיל כבר קיים לשיחה', phone, '— מדלג');
+            return;
+          }
+
+          const agentData = await getAgentById(agentId);
+          const ownerId = await getPipedriveUserIdByEmail(agentData?.email);
+
+          // סיכום השיחה — רק הודעות הלקוח, עד 1500 תווים
+          const msgs = Array.isArray(conv?.messages) ? conv.messages : [];
+          const summary = msgs
+            .filter(m => m.role === 'user')
+            .map(m => (m.content || '').trim())
+            .filter(Boolean)
+            .join('\n')
+            .slice(0, 1500) || 'פנייה מוואטסאפ';
+
+          const custName = conv?.contact_name || phone;
+          const cleanPhone = String(phone).replace('@c.us', '');
+
+          const dealId = await createPipedriveLead(custName, cleanPhone, summary, {
+            source: 'וואטסאפ',
+            ownerId,
+          });
+
+          if (dealId) {
+            await upsertConversation(phone, { pipedrive_deal_id: String(dealId) });
+            console.log('[Assign] דיל', dealId, 'נפתח עבור', agentData?.name, '|', custName);
+          }
+        } catch (e) { console.error('[Assign] פייפדרייב נכשל:', e.message); }
+      })();
+    }
 
     // אם הוקצה לנציג שירות — פתח ITEM ב-Monday
     if (SERVICE_AGENTS.has(agentId)) {
