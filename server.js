@@ -1818,6 +1818,42 @@ app.get('/api/conversations', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// שיחת בוט בודדת — לפתיחה באדמין
+app.get('/api/conversations/:id', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor', 'agent']);
+    if (!me) return;
+    const id = decodeURIComponent(req.params.id);
+    const conv = await getConversation(id);
+    if (!conv) return res.status(404).json({ error: 'שיחה לא נמצאה' });
+
+    const agents = await getAllAgents().catch(() => []);
+    const agentMap = {};
+    agents.forEach(a => { agentMap[a.id] = a.name; });
+    agentMap['admin-1'] = 'מחלקת אופרציה';
+
+    const msgs = conv.messages || [];
+    res.json({
+      id: conv.phone,
+      phone: conv.phone,
+      contact_name: conv.contact_name || null,
+      status: conv.status || 'new',
+      messages: msgs,
+      history: msgs,
+      last_message: conv.last_message || '',
+      updated_at: conv.updated_at || conv.created_at,
+      created_at: conv.created_at,
+      assigned_agent: conv.assigned_agent || null,
+      assignedAgentName: conv.assigned_agent ? (agentMap[conv.assigned_agent] || 'נציג') : null,
+      agent_takeover: !!conv.agent_takeover,
+      agentMode: !!conv.agent_takeover,
+      chatType: msgs.some(m => m.role === 'user' && /הזמנתי|שירות/.test(m.content || '')) ? 'support' : 'sales',
+      traffic_source: conv.traffic_source || null,
+      traffic_campaign: conv.traffic_campaign || null,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // הודעות שיחה עבור הווידג'ט — ציבורי, אך רק לפי מזהה סשן מלא (לא ניתן לניחוש)
 app.get('/api/conversations/:id/messages', async (req, res) => {
   try {
@@ -2207,37 +2243,7 @@ app.delete('/api/wa-conversations', async (req, res) => {
 
 // ── Bot / Conversations ───────────────────────────────────
 
-app.get('/api/conversations', async (req, res) => {
-  try { 
-    const convs = await getAllConversations();
-    // Only bot conversations (tc_ sessions)
-    const botConvs = convs.filter(c => c.phone && c.phone.startsWith('tc_'));
-    res.json(botConvs.map(c => ({
-      ...c,
-      id: c.phone,
-      lastMessage: c.last_message || '',
-      updatedAt: c.updated_at,
-    })));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
-app.get('/api/conversations/:phone', async (req, res) => {
-  try { const conv = await getConversation(req.params.phone); res.json(conv || { phone: req.params.phone, messages: [], history: [] }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/conversations/:phone', async (req, res) => {
-  try {
-    const token = req.headers['x-auth-token'];
-    // רק admin יכול למחוק
-    if (token !== 'admin-token-tarbutu') {
-      const { data } = await supabase.from('agents').select('role').eq('token', token).single();
-      if (!data || data.role !== 'admin') return res.status(403).json({ error: 'הרשאה נדחתה — רק Admin יכול למחוק' });
-    }
-    await supabase.from('conversations').delete().eq('phone', req.params.phone);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
 app.post('/api/conversations/:id/takeover', async (req, res) => {
   try { await upsertConversation(req.params.id, { agentMode: true, agentName: req.body.agentName }); res.json({ success: true }); }
