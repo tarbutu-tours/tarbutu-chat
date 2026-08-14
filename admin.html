@@ -892,7 +892,10 @@ async function openWaConv(phone, skipStatusChange) {
     var conv = await r.json();
     renderWaChat(conv);
     convPoll = setInterval(function() { refreshWaChat(phone); }, 4000);
-    if (!skipStatusChange && conv.status === 'new') {
+    // מנהל מערכת סוקר שיחות בלי לשנות סטטוס — צפייה אינה טיפול.
+    // נציג רגיל שפותח שיחה חדשה מסמן אותה כבטיפול.
+    var isViewerOnly = currentAgent.role === 'admin';
+    if (!skipStatusChange && !isViewerOnly && conv.status === 'new') {
       await fetch(API+'/api/wa-conversations/'+encodeURIComponent(phone)+'/status', { method:'POST', headers:{'Content-Type':'application/json','x-auth-token':authToken}, body: JSON.stringify({status:'open'}) });
     }
     renderConvList();
@@ -958,10 +961,7 @@ function renderWaChat(conv) {
       </div>
       <div class="tags-area" id="conv-tags-${pid}">${tags.map(t=>'<span class="tag">'+t+'<button onclick="removeTag(\''+conv.phone+'\',\''+t+'\')">×</button></span>').join('')}</div>
       <div class="chat-topbar-actions">
-        ${getStatusBadge(conv.status||'new')}
-        ${conv.status==='resolved'
-          ? '<button class="btn btn-sm btn-warn" onclick="changeStatus(\''+conv.phone+'\',\'open\')"><i class="ti ti-refresh"></i> בטיפול</button><button class="btn btn-sm btn-danger btn-sm" style="margin-right:4px" onclick="changeStatus(\''+conv.phone+'\',\'new\')"><i class="ti ti-bell"></i> חדש</button>'
-          : '<button class="btn btn-sm btn-success" onclick="markResolved(\''+conv.phone+'\')"><i class="ti ti-check"></i> סמן כטופל</button>'}
+        ${statusButtons(conv)}
       </div>
     </div>
     <div class="msgs" id="wa-msgs-${pid}">${renderMessages(conv.messages||[])}</div>
@@ -994,6 +994,31 @@ async function sendWaMsg(phone) {
   var d = await r.json();
   if (d.success) { showToast('✅ נשלח'); openWaConv(phone); }
   else showToast('❌ שגיאה: '+d.error);
+}
+
+// מנהל מערכת בלבד יכול להעביר בין שלושת המצבים לכל כיוון.
+// נציג רגיל וסופרוויזר — רק "סמן כטופל", כמו קודם.
+function statusButtons(conv){
+  var cur = conv.status || 'new';
+  var ph  = conv.phone.replace(/'/g,"\\'");
+  var badge = getStatusBadge(cur);
+
+  if (currentAgent.role !== 'admin') {
+    if (cur === 'resolved') return badge;
+    return badge + '<button class="btn btn-sm btn-success" style="margin-right:4px" '+
+           'onclick="markResolved(\''+ph+'\')"><i class="ti ti-check"></i> סמן כטופל</button>';
+  }
+
+  var opts = [
+    { k:'new',      label:'חדש',    icon:'ti-bell',    cls:'btn-danger'  },
+    { k:'open',     label:'בטיפול', icon:'ti-refresh', cls:'btn-warn'    },
+    { k:'resolved', label:'טופל',   icon:'ti-check',   cls:'btn-success' },
+  ];
+  return badge + opts.filter(function(o){ return o.k !== cur; }).map(function(o){
+    return '<button class="btn btn-sm '+o.cls+'" style="margin-right:4px" '+
+           'onclick="changeStatus(\''+ph+'\',\''+o.k+'\')" title="העבר ל'+o.label+'">'+
+           '<i class="ti '+o.icon+'"></i> '+o.label+'</button>';
+  }).join('');
 }
 
 async function changeStatus(phone, status) {
