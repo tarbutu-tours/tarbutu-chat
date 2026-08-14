@@ -2067,9 +2067,22 @@ app.post('/api/wa-conversations/:phone/send', async (req, res) => {
 
 app.post('/api/wa-conversations/:phone/status', async (req, res) => {
   try {
+    const me = await requireRole(req, res, ['admin', 'supervisor', 'agent']);
+    if (!me) return;
+
     const phone = decodeURIComponent(req.params.phone);
     const { status } = req.body;
+
+    // החזרה אחורה (מטופל לבטיפול, או מבטיפול לחדש) — מנהל מערכת בלבד
+    const RANK = { new: 0, open: 1, awaiting: 1, resolved: 2 };
+    const current = (await getConversation(phone).catch(() => null))?.status || 'new';
+    const goingBack = (RANK[status] ?? 0) < (RANK[current] ?? 0);
+    if (goingBack && me.role !== 'admin') {
+      return res.status(403).json({ error: 'רק מנהל מערכת יכול להחזיר שיחה לסטטוס קודם' });
+    }
+
     await upsertConversation(phone, { status });
+    console.log('[Status]', me.name, ':', current, '→', status, '|', phone);
 
     // סינכרון Admin → Monday. האדמין שולח resolved/open/new — לא done.
     const STATUS_TO_MONDAY = { resolved: 'טופלה', open: 'בטיפול', new: 'חדשה', awaiting: 'בטיפול' };
