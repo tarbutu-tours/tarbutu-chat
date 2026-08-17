@@ -429,6 +429,10 @@ select.avail-select option{color:#333}
       </div>
       <div class="card-body" id="campaign-report"><div style="color:#adb5bd;font-size:12px">טוען...</div></div>
     </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title"><i class="ti ti-archive"></i> ארכיון הבוט — מה כדאי לשפר</div></div>
+      <div class="card-body" id="archive-report"><div style="color:#adb5bd;font-size:12px">טוען...</div></div>
+    </div>
   </div>
 </div>
 </div>
@@ -518,6 +522,7 @@ let currentAgent = null;
 let activeConvId = null;
 let activeChannel = 'wa';
 let currentFilter = 'all';
+var showArchive = false;   // מצב תצוגת ארכיון בלשונית הבוט
 let convPoll = null;
 let currentPhone = null;
 var _selectMode = false;
@@ -635,7 +640,7 @@ function showPage(id) {
   document.getElementById('tab-'+id).classList.add('active');
   if(id==='knowledge'){loadTripsFromServer();renderDocs();loadCacheStatus();}
   if(id==='agents')loadAgents();
-  if(id==='reports'){loadReports();loadCampaigns();}
+  if(id==='reports'){loadReports();loadCampaigns();loadArchiveReport();}
 }
 
 function showChannel(ch) {
@@ -656,6 +661,30 @@ function setFilter(f, btn) {
 
 // סינון לפי ערוץ — מגיע מהקוביות בדוחות, אין לו כפתור קבוע
 var currentChannelFilter = null;
+
+async function loadArchiveReport(){
+  var el=document.getElementById('archive-report');
+  if(!el) return;
+  try{
+    var r=await fetch(API+'/api/archive-report',{headers:{'x-auth-token':authToken}});
+    var d=await r.json();
+    if(!r.ok||!d.reasons||!d.reasons.length){
+      el.innerHTML='<div style="color:#adb5bd;font-size:12px">הארכיון ריק. שיחות שתעביר לארכיון יופיעו כאן מקובצות לפי סיבה.</div>';
+      return;
+    }
+    el.innerHTML='<div style="font-size:11px;color:#6c757d;margin-bottom:8px">'+d.total+' שיחות בארכיון</div>'+
+      d.reasons.map(function(x){
+        return '<div style="padding:8px 10px;border-bottom:1px solid #eee">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center">'+
+            '<span style="font-size:13px;font-weight:500">'+x.reason+'</span>'+
+            '<span class="badge badge-warn">'+x.count+'</span>'+
+          '</div>'+
+          (x.examples.length?'<div style="font-size:11px;color:#6c757d;margin-top:4px">'+
+            x.examples.map(function(e){return '· '+e;}).join('<br>')+'</div>':'')+
+        '</div>';
+      }).join('');
+  }catch(e){ el.innerHTML='<div style="color:#b42318;font-size:12px">טעינה נכשלה</div>'; }
+}
 
 async function loadCampaigns(){
   var el=document.getElementById('campaign-report');
@@ -780,7 +809,7 @@ async function loadAllConversations() {
   try {
     const [waRes, botRes] = await Promise.all([
       fetch(API+'/api/wa-conversations', { headers:{'x-auth-token':authToken} }),
-      fetch(API+'/api/conversations')
+      fetch(API+'/api/conversations'+(showArchive?'?archived=1':''), { headers:{'x-auth-token':authToken} })
     ]);
     if (waRes.ok) window._waList = await waRes.json();
     if (botRes.ok) window._botList = await botRes.json();
@@ -868,8 +897,12 @@ function renderConvList() {
     // כל מה שהשרת החזיר כאן הוא כבר שיחת בוט — הסינון הישן חיפש tc_ בלבד
     // והחדשות הן web-, ולכן הן נעלמו מהרשימה למרות שנספרו במונה.
     var blist = (window._botList || []).filter(c => c.id);
-    if (!blist.length) { el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:#adb5bd;font-size:12px">אין שיחות בוט</div>'; return; }
-    el.innerHTML = blist.map(c=>`
+    var toggle = '<div style="padding:6px 10px;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center">'+
+      '<button class="btn btn-sm '+(showArchive?'btn-outline':'btn-primary')+'" onclick="setArchiveView(false)">פעילות</button>'+
+      '<button class="btn btn-sm '+(showArchive?'btn-primary':'btn-outline')+'" onclick="setArchiveView(true)"><i class="ti ti-archive"></i> ארכיון</button>'+
+      '</div>';
+    if (!blist.length) { el.innerHTML = toggle + '<div style="padding:1.5rem;text-align:center;color:#adb5bd;font-size:12px">'+(showArchive?'הארכיון ריק':'אין שיחות בוט')+'</div>'; return; }
+    el.innerHTML = toggle + blist.map(c=>`
       <div class="conv-item ${c.id===activeConvId?'active-conv':''}" onclick="openBotConv('${c.id}')">
         <div class="conv-name" style="display:flex;align-items:center;justify-content:space-between">
           <span><i class="ti ti-robot" style="font-size:12px;color:var(--p)"></i> ${c.contact_name || 'שיחה מהאתר'}${c.traffic_campaign?' · '+c.traffic_campaign:''}</span>
@@ -1069,7 +1102,10 @@ function renderBotChat(conv) {
         ${conv.agentMode
           ?'<button class="btn btn-sm btn-outline" onclick="releaseConv(\''+conv.id+'\')"><i class="ti ti-robot"></i> החזר לבוט</button>'
           :'<button class="btn btn-sm btn-success" onclick="takeoverConv(\''+conv.id+'\')"><i class="ti ti-hand-stop"></i> כנס לשיחה</button>'}
-        ${currentAgent.role==='admin'?'<button class="btn btn-sm btn-danger" onclick="deleteBotConv(\''+conv.id+'\')" title="מחק שיחה"><i class="ti ti-trash"></i></button>':''}
+        ${conv.archived
+          ? '<button class="btn btn-sm btn-outline" onclick="restoreBotConv(\''+conv.id+'\')" title="החזר לשיחות פעילות"><i class="ti ti-arrow-back-up"></i> שחזר</button>'+
+            (currentAgent.role==='admin'?'<button class="btn btn-sm btn-danger" style="margin-right:4px" onclick="deleteBotConvPermanent(\''+conv.id+'\')" title="מחיקה סופית"><i class="ti ti-trash"></i></button>':'')
+          : '<button class="btn btn-sm btn-outline" onclick="archiveBotConv(\''+conv.id+'\')" title="העבר לארכיון"><i class="ti ti-archive"></i></button>'}
       </div>
     </div>
     <div class="msgs" id="bot-msgs-${conv.id}">
@@ -1114,18 +1150,69 @@ async function sendBotMsg(id){
   }catch(e){showToast('השליחה נכשלה');}
 }
 
-async function deleteBotConv(id){
-  if(!confirm('למחוק את השיחה? הפעולה אינה הפיכה.'))return;
+// העברה לארכיון עם סיבה — כדי שנוכל ללמוד מזה אחר כך
+var ARCHIVE_REASONS = [
+  'הבוט לא ידע לענות',
+  'חסר מידע במאגר',
+  'הלקוח עזב באמצע',
+  'הבוט ענה שגוי',
+  'שיחת בדיקה',
+  'טופל — לא רלוונטי',
+];
+
+function setArchiveView(on){
+  showArchive = on;
+  activeConvId = null;
+  document.getElementById('chat-area').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#adb5bd">בחר שיחה</div>';
+  loadAllConversations();
+}
+
+function archiveBotConv(id){
+  var opts = ARCHIVE_REASONS.map(function(r,i){ return (i+1)+'. '+r; }).join('\n');
+  var pick = prompt('העברה לארכיון — מה הסיבה?\n\n'+opts+'\n\nהקלד מספר (או השאר ריק):');
+  if (pick === null) return;
+  var reason = ARCHIVE_REASONS[parseInt(pick)-1] || null;
+  doArchive(id, reason);
+}
+
+async function doArchive(id, reason){
   try{
     var r=await fetch(API+'/api/conversations/'+encodeURIComponent(id),{
+      method:'DELETE',
+      headers:{'Content-Type':'application/json','x-auth-token':authToken},
+      body:JSON.stringify({reason:reason})});
+    var d=await r.json();
+    if(!r.ok){showToast(d.error||'הפעולה נכשלה');return;}
+    showToast('הועבר לארכיון' + (reason?' · '+reason:''));
+    document.getElementById('chat-area').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#adb5bd">בחר שיחה</div>';
+    loadAllConversations();
+  }catch(e){showToast('הפעולה נכשלה');}
+}
+
+async function restoreBotConv(id){
+  try{
+    var r=await fetch(API+'/api/conversations/'+encodeURIComponent(id)+'/restore',{
+      method:'POST',headers:{'x-auth-token':authToken}});
+    if(!r.ok){showToast('השחזור נכשל');return;}
+    showToast('השיחה שוחזרה');
+    loadAllConversations();
+  }catch(e){showToast('השחזור נכשל');}
+}
+
+async function deleteBotConvPermanent(id){
+  if(!confirm('למחוק סופית? הפעולה אינה הפיכה והמידע יאבד.'))return;
+  try{
+    var r=await fetch(API+'/api/conversations/'+encodeURIComponent(id)+'/permanent',{
       method:'DELETE',headers:{'x-auth-token':authToken}});
     var d=await r.json();
     if(!r.ok){showToast(d.error||'המחיקה נכשלה');return;}
-    showToast('השיחה נמחקה');
-    document.getElementById('chat-area').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#adb5bd">בחר שיחה</div>';
+    showToast('נמחק סופית');
     loadAllConversations();
   }catch(e){showToast('המחיקה נכשלה');}
 }
+
+// תאימות לקריאות קיימות
+function deleteBotConv(id){ archiveBotConv(id); }
 
 function showModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
