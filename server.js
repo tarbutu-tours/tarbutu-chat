@@ -464,9 +464,16 @@ async function notifyIncomingMessage(phone, text, conv) {
     const agent = await getAgentById(agentId);
     const contactName = conv?.contact_name;
 
-    // מייל — בכל הודעה נכנסת
-    await emailAgentNewMessage(agent, phone, text, contactName)
-      .catch(e => console.error('[Notify] Email failed:', e.message));
+    // מייל רק על ההודעה הראשונה בסבב — לא על כל הודעה בהתכתבות פעילה.
+    // מתאפס כשהשיחה מסומנת כטופלה, כך שלקוח שחוזר אחרי כמה ימים יפיק מייל חדש.
+    if (conv?.notified_at) {
+      console.log('[Notify] כבר נשלח מייל לשיחה', phone, '— מדלג');
+    } else {
+      await emailAgentNewMessage(agent, phone, text, contactName)
+        .catch(e => console.error('[Notify] Email failed:', e.message));
+      await upsertConversation(phone, { notified_at: new Date().toISOString() })
+        .catch(() => {});
+    }
 
     // ITEM ב-Monday — רק אם עדיין אין אחד לשיחה הזו
     if (!SERVICE_AGENTS.has(agentId)) return;
@@ -1838,8 +1845,10 @@ app.get('/api/conversations', async (req, res) => {
     agents.forEach(a => { agentMap[a.id] = a.name; });
     agentMap['admin-1'] = 'מחלקת אופרציה';
 
+    const showArchived = req.query.archived === '1';
     const list = convs
       .filter(c => isWebChatId(c.phone))
+      .filter(c => showArchived ? c.archived : !c.archived)
       .map(c => ({
         id: c.phone,
         phone: c.phone,
@@ -1857,6 +1866,9 @@ app.get('/api/conversations', async (req, res) => {
         chatType: (c.messages || []).some(m => m.role === 'user' && /הזמנתי|שירות/.test(m.content || '')) ? 'support' : 'sales',
         traffic_source: c.traffic_source || null,
         traffic_campaign: c.traffic_campaign || null,
+        archived: !!c.archived,
+        archive_reason: c.archive_reason || null,
+        archived_at: c.archived_at || null,
       }))
       .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
 
@@ -1914,14 +1926,76 @@ app.get('/api/conversations/:id/messages', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// מחיקת שיחת בוט — מנהל מערכת בלבד
+// העברה לארכיון — לא מחיקה. השיחות נשמרות לניתוח ולשיפור הבוט.
 app.delete('/api/conversations/:id', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor']);
+    if (!me) return;
+    const id = decodeURIComponent(req.params.id);
+    const { reason } = req.body || {};
+
+    await upsertConversation(id, {
+      archived: true,
+      archive_reason: reason || null,
+      archived_at: new Date().toISOString(),
+      archived_by: me.name,
+    });
+    console.log('[Archive]', me.name, 'העביר לארכיון:', id, reason ? '| סיבה: ' + reason : '');
+    res.json({ success: true, archived: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// דוח ארכיון — מה חוזר על עצמו, כדי לדעת מה לשפר בבוט
+app.get('/api/archive-report', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor']);
+    if (!me) return;
+
+    const convs = await getAllConversations();
+    const archived = convs.filter(c => c.archived && isWebChatId(c.phone));
+
+    const byReason = {};
+    archived.forEach(c => {
+      const r = c.archive_reason || 'ללא סיבה';
+      if (!byReason[r]) byReason[r] = { reason: r, count: 0, examples: [] };
+      byReason[r].count++;
+      if (byReason[r].examples.length < 3) {
+        const lastUser = (c.messages || []).filter(m => m.role === 'user').slice(-1)[0];
+        if (lastUser?.content) byReason[r].examples.push(lastUser.content.slice(0, 90));
+      }
+    });
+
+    res.json({
+      total: archived.length,
+      reasons: Object.values(byReason).sort((a, b) => b.count - a.count),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// שחזור מהארכיון
+app.post('/api/conversations/:id/restore', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin', 'supervisor']);
+    if (!me) return;
+    const id = decodeURIComponent(req.params.id);
+    await upsertConversation(id, { archived: false, archive_reason: null });
+    console.log('[Archive] שוחזר:', id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// מחיקה סופית — מנהל מערכת בלבד, ורק מתוך הארכיון
+app.delete('/api/conversations/:id/permanent', async (req, res) => {
   try {
     const me = await requireRole(req, res, ['admin']);
     if (!me) return;
     const id = decodeURIComponent(req.params.id);
+    const conv = await getConversation(id);
+    if (!conv?.archived) {
+      return res.status(400).json({ error: 'יש להעביר לארכיון לפני מחיקה סופית' });
+    }
     await supabase.from('conversations').delete().eq('phone', id);
-    console.log('[Bot] שיחה נמחקה:', id, 'על ידי', me.name);
+    console.log('[Archive] נמחק סופית:', id, 'על ידי', me.name);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2081,7 +2155,9 @@ app.post('/api/wa-conversations/:phone/status', async (req, res) => {
       return res.status(403).json({ error: 'רק מנהל מערכת יכול להחזיר שיחה לסטטוס קודם' });
     }
 
-    await upsertConversation(phone, { status });
+    // סגירת שיחה מאפסת את חסימת המייל — פנייה חדשה תפיק התראה
+    const extra = (status === 'resolved') ? { notified_at: null } : {};
+    await upsertConversation(phone, { status, ...extra });
     console.log('[Status]', me.name, ':', current, '→', status, '|', phone);
 
     // סינכרון Admin → Monday. האדמין שולח resolved/open/new — לא done.
@@ -2184,8 +2260,11 @@ app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
       const conv = await getConversation(phone);
       const agent = await getAgentById(agentId);
       const lastMsg = (conv?.messages || []).filter(m => m.role === 'user').slice(-1)[0]?.content || '';
-      emailAgentNewMessage(agent, phone, lastMsg, conv?.contact_name)
+      // הקצאה ידנית תמיד מודיעה — זו פעולה מכוונת. מסמנים כדי שההודעה
+      // הבאה של הלקוח לא תפיק מייל נוסף על אותה שיחה.
+      await emailAgentNewMessage(agent, phone, lastMsg, conv?.contact_name)
         .catch(e => console.error('[Assign] Email failed:', e.message));
+      await upsertConversation(phone, { notified_at: new Date().toISOString() }).catch(() => {});
     } catch(e) { console.error('[Assign] Notify error:', e.message); }
 
     // הוקצה לנציג מכירות — פתח דיל בפייפדרייב
