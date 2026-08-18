@@ -751,10 +751,17 @@ async function sendReportNow(btn) {
 }
 
 // לחיצה על קובייה בדוחות: מעבר לשיחות + סינון + הודעה מה מוצג
-function drillDown(kind) {  var channels = { green:'Green API 📱', twilio:'Twilio ☎️' };
+function drillDown(kind) {  var channels = { green:'Green API 📱', twilio:'Twilio ☎️', bot:'הבוט באתר 🤖' };
   var labels = { all:'כל השיחות', new:'שיחות חדשות 🔴', open:'שיחות בטיפול 🟡',
                  awaiting:'שיחות בהמתנה ⏳', resolved:'שיחות שטופלו ✅' };
 
+  if (kind === 'bot') {
+    // ערוץ הבוט יושב בלשונית נפרדת
+    showPage('control');
+    if (typeof showChannel === 'function') showChannel('bot');
+    showToast('מציג: הבוט באתר 🤖');
+    return;
+  }
   if (channels[kind]) {
     currentChannelFilter = kind;
     currentFilter = 'all';
@@ -1467,7 +1474,8 @@ async function loadReports() {
       <div class="stat-card clickable" onclick="drillDown('awaiting')" title="הצג שיחות בהמתנה"><div class="stat-num" style="color:#f0c040">${d.byStatus.awaiting||0}</div><div class="stat-lbl">⏳ בהמתנה</div></div>
       <div class="stat-card clickable" onclick="drillDown('resolved')" title="הצג שיחות שטופלו"><div class="stat-num" style="color:var(--ok)">${d.byStatus.resolved||0}</div><div class="stat-lbl">✅ טופלו</div></div>
       <div class="stat-card clickable" onclick="drillDown('green')" title="הצג שיחות Green API"><div class="stat-num" style="color:var(--wa)">${d.byChannel.green||0}</div><div class="stat-lbl">📱 Green</div></div>
-      <div class="stat-card clickable" onclick="drillDown('twilio')" title="הצג שיחות Twilio"><div class="stat-num">${d.byChannel.twilio||0}</div><div class="stat-lbl">☎️ Twilio</div></div>`;
+      <div class="stat-card clickable" onclick="drillDown('twilio')" title="הצג שיחות Twilio"><div class="stat-num">${d.byChannel.twilio||0}</div><div class="stat-lbl">☎️ Twilio</div></div>
+      <div class="stat-card clickable" onclick="drillDown('bot')" title="הצג שיחות מהצ'אט באתר"><div class="stat-num" style="color:var(--p)">${d.byChannel.bot||0}</div><div class="stat-lbl">🤖 בוט באתר</div></div>`;
     
     // ביצוע נציגים
     document.getElementById('agent-stats').innerHTML = (d.agentStats||[]).length === 0 ? '<div style="color:#adb5bd;font-size:13px">אין נתונים</div>' :
