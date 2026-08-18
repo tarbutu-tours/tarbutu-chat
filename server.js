@@ -2741,18 +2741,22 @@ app.post('/api/import-green', (req, res) => { res.json({ success: true, message:
 
 app.get('/api/reports', async (req, res) => {
   try {
-    const convs = await getAllConversations();
+    const allConvs = await getAllConversations();
     const today = new Date().toDateString();
-    
-    // סטטיסטיקות יום
+
+    // שיחות ארכיון אינן נספרות. שיחות מהאתר נספרות בערוץ נפרד,
+    // אחרת הן נכללות ב-Green והמספרים לא מסתדרים.
+    const convs = allConvs.filter(c => !c.archived);
+
     const byStatus = { new: 0, open: 0, resolved: 0, awaiting: 0 };
-    const byChannel = { green: 0, twilio: 0 };
+    const byChannel = { green: 0, twilio: 0, bot: 0 };
     const agentStats = {};
-    
+
     convs.forEach(c => {
       const s = c.status || 'new';
       byStatus[s] = (byStatus[s] || 0) + 1;
-      if (c.channel === 'twilio') byChannel.twilio++;
+      if (isWebChatId(c.phone || '')) byChannel.bot++;
+      else if (c.channel === 'twilio') byChannel.twilio++;
       else byChannel.green++;
       
       // ביצוע נציגים
