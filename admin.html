@@ -287,6 +287,16 @@ select.avail-select option{color:#333}
       <div class="card-header"><div class="card-title"><i class="ti ti-clock"></i> ממתינים לאישור</div></div>
       <div class="card-body" id="pending-agents"><div style="color:#adb5bd;font-size:13px">אין בקשות ממתינות</div></div>
     </div>
+    <div class="card" id="notify-card" style="display:none">
+      <div class="card-header"><div class="card-title"><i class="ti ti-bell"></i> התראות במייל לנציגים</div></div>
+      <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="font-size:12px;color:#6c757d;max-width:420px">
+          כשההתראות פעילות, נציג מקבל מייל על ההודעה הראשונה בכל פנייה חדשה שמשויכת אליו.
+          <span id="notify-state" style="font-weight:600"></span>
+        </div>
+        <button id="notify-btn" class="btn btn-sm" onclick="toggleNotifications()">טוען...</button>
+      </div>
+    </div>
     <div class="card">
       <div class="card-header"><div class="card-title"><i class="ti ti-users"></i> נציגים פעילים</div></div>
       <div class="card-body" id="active-agents"><div style="color:#adb5bd;font-size:13px">טוען...</div></div>
@@ -639,7 +649,7 @@ function showPage(id) {
   document.getElementById('page-'+id).classList.add('active');
   document.getElementById('tab-'+id).classList.add('active');
   if(id==='knowledge'){loadTripsFromServer();renderDocs();loadCacheStatus();}
-  if(id==='agents')loadAgents();
+  if(id==='agents'){loadAgents();loadNotifySetting();}
   if(id==='reports'){loadReports();loadCampaigns();loadArchiveReport();}
 }
 
@@ -1366,6 +1376,51 @@ async function loadAgents() {
       '</div>';
     }).join('');
   } catch(e) {}
+}
+
+var _notifyEnabled = false;
+
+async function loadNotifySetting(){
+  var card=document.getElementById('notify-card');
+  if(!card || currentAgent.role!=='admin') return;
+  card.style.display='block';
+  try{
+    var r=await fetch(API+'/api/settings/notifications',{headers:{'x-auth-token':authToken}});
+    var d=await r.json();
+    _notifyEnabled=!!d.enabled;
+  }catch(e){ _notifyEnabled=false; }
+  renderNotifyBtn();
+}
+
+function renderNotifyBtn(){
+  var btn=document.getElementById('notify-btn');
+  var st=document.getElementById('notify-state');
+  if(!btn) return;
+  if(_notifyEnabled){
+    btn.className='btn btn-sm btn-danger';
+    btn.innerHTML='<i class="ti ti-bell-off"></i> כבה התראות';
+    st.textContent=' כרגע: פעילות ✅';
+    st.style.color='#0a7a3d';
+  }else{
+    btn.className='btn btn-sm btn-success';
+    btn.innerHTML='<i class="ti ti-bell"></i> הפעל התראות';
+    st.textContent=' כרגע: כבויות — נציגים לא מקבלים מיילים';
+    st.style.color='#b42318';
+  }
+}
+
+async function toggleNotifications(){
+  var next=!_notifyEnabled;
+  try{
+    var r=await fetch(API+'/api/settings/notifications',{
+      method:'POST',headers:{'Content-Type':'application/json','x-auth-token':authToken},
+      body:JSON.stringify({enabled:next})});
+    var d=await r.json();
+    if(!r.ok){showToast(d.error||'הפעולה נכשלה');return;}
+    _notifyEnabled=d.enabled;
+    renderNotifyBtn();
+    showToast(_notifyEnabled?'התראות הופעלו':'התראות כובו');
+  }catch(e){showToast('הפעולה נכשלה');}
 }
 
 async function changeRole(id, role, el) {
