@@ -676,7 +676,7 @@
     showOptions(['🚢 מתכנן הפלגה חדשה', '💬 יש לי שאלה על טיול שהזמנתי']);
   }
 
-  // פתיחה אוטומטית אחרי 15 שניות — בדסקטופ בלבד.
+  // פתיחה אוטומטית אחרי 5 שניות — בדסקטופ בלבד.
   // לא נפתח שוב אם הגולש כבר סגר, ולא במובייל (שם זה מכסה את כל המסך).
   (function autoOpen() {
     var isMobile = window.matchMedia('(max-width: 767px)').matches
@@ -689,7 +689,7 @@
       var alreadyClosed = false;
       try { alreadyClosed = !!sessionStorage.getItem('tarbutu_closed'); } catch (e) {}
       if (!isOpen && !alreadyClosed) openChat();
-    }, 15000);
+    }, 5000);
   })();
 
   // חלון פרטיות
