@@ -270,16 +270,45 @@ async function getConversation(phone) {
   return data;
 }
 
+// עמודות שנוספו בהמשך הפיתוח. אם אחת מהן חסרה בטבלה, סופבייס דוחה את כל
+// השמירה — וההודעה של הלקוח הולכת לאיבוד. לכן במקרה כזה מנסים שוב בלעדיהן.
+const OPTIONAL_COLS = [
+  'notified_at', 'archived', 'archive_reason', 'archived_at', 'archived_by',
+  'agent_takeover', 'pipedrive_deal_id', 'monday_item_id',
+  'traffic_source', 'traffic_medium', 'traffic_campaign', 'traffic_gclid', 'landing_page',
+];
+
 async function upsertConversation(phone, updates) {
   const existing = await getConversation(phone);
-  if (existing) {
-    const { data, error } = await supabase.from('conversations').update({ ...updates, updated_at: new Date().toISOString() }).eq('phone', phone).select().single();
+
+  const save = async (payload) => {
+    if (existing) {
+      const { data, error } = await supabase.from('conversations')
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq('phone', phone).select().single();
+      if (error) throw error;
+      return data;
+    }
+    const { data, error } = await supabase.from('conversations')
+      .insert([{ phone, ...payload, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }])
+      .select().single();
     if (error) throw error;
     return data;
-  } else {
-    const { data, error } = await supabase.from('conversations').insert([{ phone, ...updates, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }]).select().single();
-    if (error) throw error;
-    return data;
+  };
+
+  try {
+    return await save(updates);
+  } catch (err) {
+    // עמודה חסרה — שומרים בלעדיה כדי שההודעה לא תאבד
+    const missing = OPTIONAL_COLS.find(c => (err.message || '').includes(c));
+    if (!missing) throw err;
+
+    console.warn(`[DB] העמודה "${missing}" חסרה בטבלה — נשמר בלעדיה. הרץ:`);
+    console.warn(`     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS ${missing} TEXT;`);
+
+    const safe = { ...updates };
+    OPTIONAL_COLS.forEach(c => delete safe[c]);
+    return await save(safe);
   }
 }
 
@@ -356,11 +385,56 @@ async function requireRole(req, res, allowed) {
   return agent;
 }
 
+// ── מתג התראות ────────────────────────────────────────────
+// כבוי כברירת מחדל. נשלט מהאדמין ונשמר במסד, כך שהוא שורד הפעלה מחדש.
+let notificationsEnabled = false;
+
+async function loadNotifySetting() {
+  try {
+    const { data } = await supabase.from('settings').select('value').eq('key', 'notifications_enabled').maybeSingle();
+    if (data) notificationsEnabled = data.value === 'true';
+    console.log('[Notify] התראות לנציגים:', notificationsEnabled ? 'פעילות' : 'כבויות');
+  } catch (e) {
+    console.warn('[Notify] טבלת settings לא נמצאה — התראות כבויות');
+    notificationsEnabled = false;
+  }
+}
+
+app.get('/api/settings/notifications', async (req, res) => {
+  const me = await requireRole(req, res, ['admin', 'supervisor']);
+  if (!me) return;
+  res.json({ enabled: notificationsEnabled });
+});
+
+app.post('/api/settings/notifications', async (req, res) => {
+  try {
+    const me = await requireRole(req, res, ['admin']);
+    if (!me) return;
+    const enabled = !!req.body.enabled;
+    notificationsEnabled = enabled;
+    // אם טבלת settings לא קיימת — המתג עדיין עובד, פשוט מתאפס בהפעלה מחדש
+    try {
+      await supabase.from('settings').upsert(
+        [{ key: 'notifications_enabled', value: String(enabled) }],
+        { onConflict: 'key' }
+      );
+    } catch (dbErr) {
+      console.warn('[Notify] שמירה נכשלה (טבלת settings חסרה?):', dbErr.message);
+    }
+    console.log('[Notify]', me.name, enabled ? 'הפעיל' : 'כיבה', 'התראות לנציגים');
+    res.json({ success: true, enabled });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── התראות על הודעה נכנסת ─────────────────────────────────
 // 1. מייל לנציג שהשיחה משויכת אליו
 // 2. ITEM חדש ב-Monday לכל הודעה שמגיעה לנציג שירות (מירב / ערן)
 
 async function emailAgentNewMessage(agent, phone, text, contactName) {
+  if (!notificationsEnabled) {
+    console.log('[Notify] התראות כבויות — לא נשלח מייל ל-' + (agent?.email || '?'));
+    return;
+  }
   if (!agent?.email) return;
   const who = contactName || phone;
   const preview = (text || '📎 קובץ').slice(0, 300);
@@ -3096,5 +3170,6 @@ app.listen(PORT, async () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ Auth system with Resend emails active`);
   await initDB();
+  await loadNotifySetting();
   startReportScheduler();
 });
