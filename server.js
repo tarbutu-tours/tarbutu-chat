@@ -2345,131 +2345,83 @@ app.post('/api/wa-conversations/:phone/tag', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// מה שקורה כשמשייכים שיחה לנציג — מייל, דיל בפייפדרייב או כרטיס במונדיי.
+// משותף להקצאה ("קח אליי") ולהעברה לנציג אחר, כדי ששתיהן יתנהגו זהה.
+async function handleAgentAssignment(phone, agentId, source = 'הקצאה') {
+  console.log(`[${source}]`, phone, '→', agentId,
+              '| מכירות?', SALES_AGENTS.has(agentId),
+              '| שירות?', SERVICE_AGENTS.has(agentId));
+  try {
+    const conv = await getConversation(phone);
+    const agent = await getAgentById(agentId);
+
+    // מייל לנציג (כפוף למתג ההתראות)
+    const lastMsg = (conv?.messages || []).filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+    await emailAgentNewMessage(agent, phone, lastMsg, conv?.contact_name)
+      .catch(e => console.error(`[${source}] מייל נכשל:`, e.message));
+    await upsertConversation(phone, { notified_at: new Date().toISOString() }).catch(() => {});
+
+    // נציג מכירות → דיל בפייפדרייב
+    if (SALES_AGENTS.has(agentId)) {
+      if (conv?.pipedrive_deal_id) {
+        console.log(`[${source}] דיל כבר קיים לשיחה`, phone, '— מדלג');
+      } else {
+        const ownerId = await getPipedriveUserIdByEmail(agent?.email);
+        const summary = (conv?.messages || [])
+          .filter(m => m.role === 'user')
+          .map(m => (m.content || '').trim())
+          .filter(Boolean).join('\n').slice(0, 1500) || 'פנייה מוואטסאפ';
+        const custName = conv?.contact_name || phone;
+        const cleanPhone = String(phone).replace('@c.us', '');
+
+        const dealId = await createPipedriveLead(custName, cleanPhone, summary, {
+          source: 'וואטסאפ', ownerId,
+        });
+        if (dealId) {
+          await upsertConversation(phone, { pipedrive_deal_id: String(dealId) }).catch(() => {});
+          console.log(`[${source}] דיל`, dealId, 'נפתח עבור', agent?.name, '|', custName);
+        }
+      }
+    }
+
+    // נציג שירות → כרטיס במונדיי
+    if (SERVICE_AGENTS.has(agentId)) {
+      if (conv?.monday_item_id) {
+        console.log(`[${source}] כרטיס מונדיי כבר קיים`, phone, '— מדלג');
+      } else {
+        const itemId = await createServiceMondayItem(
+          phone,
+          (conv?.messages || []).filter(m => m.role === 'user').slice(-1)[0]?.content || '',
+          conv?.contact_name, agent?.name, agent?.email
+        ).catch(e => { console.error(`[${source}] מונדיי נכשל:`, e.message); return null; });
+        if (itemId) {
+          await upsertConversation(phone, { monday_item_id: String(itemId) }).catch(() => {});
+          console.log(`[${source}] כרטיס`, itemId, 'נפתח עבור', agent?.name);
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[${source}] שגיאה:`, e.message);
+  }
+}
+
 app.post('/api/wa-conversations/:phone/assign', async (req, res) => {
   try {
     const phone = decodeURIComponent(req.params.phone);
     const { agentId } = req.body;
-    await upsertConversation(phone, { assigned_agent: agentId });
-
-    // הודע לנציג שהשיחה הועברה אליו
-    try {
-      const conv = await getConversation(phone);
-      const agent = await getAgentById(agentId);
-      const lastMsg = (conv?.messages || []).filter(m => m.role === 'user').slice(-1)[0]?.content || '';
-      // הקצאה ידנית תמיד מודיעה — זו פעולה מכוונת. מסמנים כדי שההודעה
-      // הבאה של הלקוח לא תפיק מייל נוסף על אותה שיחה.
-      await emailAgentNewMessage(agent, phone, lastMsg, conv?.contact_name)
-        .catch(e => console.error('[Assign] Email failed:', e.message));
-      await upsertConversation(phone, { notified_at: new Date().toISOString() }).catch(() => {});
-    } catch(e) { console.error('[Assign] Notify error:', e.message); }
-
-    // הוקצה לנציג מכירות — פתח דיל בפייפדרייב
-    if (SALES_AGENTS.has(agentId)) {
-      (async () => {
-        try {
-          const conv = await getConversation(phone);
-          if (conv?.pipedrive_deal_id) {
-            console.log('[Pipedrive] דיל כבר קיים לשיחה', phone, '— מדלג');
-            return;
-          }
-
-          const agentData = await getAgentById(agentId);
-          const ownerId = await getPipedriveUserIdByEmail(agentData?.email);
-
-          // סיכום השיחה — רק הודעות הלקוח, עד 1500 תווים
-          const msgs = Array.isArray(conv?.messages) ? conv.messages : [];
-          const summary = msgs
-            .filter(m => m.role === 'user')
-            .map(m => (m.content || '').trim())
-            .filter(Boolean)
-            .join('\n')
-            .slice(0, 1500) || 'פנייה מוואטסאפ';
-
-          const custName = conv?.contact_name || phone;
-          const cleanPhone = String(phone).replace('@c.us', '');
-
-          const dealId = await createPipedriveLead(custName, cleanPhone, summary, {
-            source: 'וואטסאפ',
-            ownerId,
-          });
-
-          if (dealId) {
-            await upsertConversation(phone, { pipedrive_deal_id: String(dealId) });
-            console.log('[Assign] דיל', dealId, 'נפתח עבור', agentData?.name, '|', custName);
-          }
-        } catch (e) { console.error('[Assign] פייפדרייב נכשל:', e.message); }
-      })();
-    }
-
-    // אם הוקצה לנציג שירות — פתח ITEM ב-Monday
-    if (SERVICE_AGENTS.has(agentId)) {
-      try {
-        const conv = await getConversation(phone);
-        // פתח רק אם אין ITEM קיים
-        if (!conv?.monday_item_id) {
-          const agentData = await getAgentById(agentId);
-          const msgs = conv?.messages || [];
-          const lastUserMsg = msgs.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
-          const description = msgs
-            .filter(m => m.role === 'user')
-            .map(m => m.content)
-            .join(' | ')
-            .slice(0, 500);
-
-          const cleanName = (conv?.contact_name || 'לקוח').substring(0, 50);
-
-          // "נציג מטפל" — מזהה המשתמש נשלף לפי המייל של הנציג
-          const mondayUserId = await getMondayUserIdByEmail(agentData?.email);
-
-          const colValues = {
-            'phone_mkw59e3v': { phone: phone.replace('+',''), countryShortName: 'IL' },
-            'long_text_mkw5q0e2': { text: description },
-            'text_mkzmby8z': 'Admin',
-            'color_mkw5dvjb': { label: 'חדשה' },
-          };
-          if (mondayUserId) {
-            colValues['multiple_person_mkw5rbj0'] = {
-              personsAndTeams: [{ id: mondayUserId, kind: 'person' }]
-            };
-          }
-
-          const query = `mutation {
-            create_item(
-              board_id: ${MONDAY_BOARD_ID},
-              group_id: "${MONDAY_GROUP_NEW}",
-              item_name: "${cleanName}",
-              column_values: ${JSON.stringify(JSON.stringify(colValues))}
-            ) { id }
-          }`;
-
-          const mondayRes = await axios.post('https://api.monday.com/v2',
-            { query },
-            { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } }
-          );
-          const mondayItemId = mondayRes.data?.data?.create_item?.id;
-          if (mondayItemId) {
-            await upsertConversation(phone, { monday_item_id: String(mondayItemId) });
-            console.log('[Monday] Item created for service agent:', agentData?.name, '| Item:', mondayItemId);
-          }
-        }
-      } catch(mondayErr) {
-        console.error('[Monday] Error creating item:', mondayErr.message);
-      }
-    }
-
+    await upsertConversation(phone, { assigned_agent: agentId, status: 'open' });
     res.json({ success: true });
+    await handleAgentAssignment(phone, agentId, 'הקצאה');
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/wa-conversations/:phone/transfer', async (req, res) => {
   try {
     const phone = decodeURIComponent(req.params.phone);
-    // When transferring, mark as new so receiving agent sees it
-    await upsertConversation(phone, { 
-      assigned_agent: req.body.agentId,
-      status: 'new'
-    });
+    const { agentId } = req.body;
+    await upsertConversation(phone, { assigned_agent: agentId, status: 'new' });
     res.json({ success: true });
+    await handleAgentAssignment(phone, agentId, 'העברה');
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
