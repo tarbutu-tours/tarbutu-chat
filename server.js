@@ -1435,7 +1435,13 @@ app.post('/webhook/greenapi', async (req, res) => {
     }
 
     // שמור את ההודעה תחילה (חשוב!)
-    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: existing?.status || 'new', channel: 'green', contact_name: senderName, isGroup };
+    // שיחה שכבר נסגרה ולקוח חוזר — נפתחת מחדש, אחרת ההודעה נבלעת בעמודת "טופל"
+    const wasResolved = existing?.status === 'resolved';
+    const newStatus = (!existing || wasResolved) ? 'new' : (existing.status || 'new');
+    if (wasResolved) console.log('[Webhook] שיחה שנסגרה נפתחה מחדש:', phone);
+
+    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: newStatus, channel: 'green', contact_name: senderName, isGroup };
+    if (wasResolved) updates.notified_at = null;   // מאפשר מייל התראה חדש
     
     console.log('[Webhook Save]', JSON.stringify(updates, null, 2).substring(0, 300));
 
@@ -1451,6 +1457,22 @@ app.post('/webhook/greenapi', async (req, res) => {
     // שמור את ההודעה של הלקוח ב-Supabase
     await upsertConversation(phone, updates);
     console.log('[Webhook] Saved to Supabase, messages with file:', updates.messages.some(m => m.fileUrl) ? 'YES' : 'NO');
+
+    // שיחה שנפתחה מחדש — מחזירים גם את הכרטיס במונדיי ל"חדשה"
+    if (wasResolved && existing?.monday_item_id) {
+      axios.post('https://api.monday.com/v2', {
+        query: `mutation {
+          change_column_value(
+            board_id: ${MONDAY_BOARD_ID},
+            item_id: ${existing.monday_item_id},
+            column_id: "color_mkw5dvjb",
+            value: ${JSON.stringify(JSON.stringify({ color_mkw5dvjb: { label: 'חדשה' } }))}
+          ) { id }
+        }`
+      }, { headers: { Authorization: MONDAY_TOKEN, 'Content-Type': 'application/json' } })
+        .then(() => console.log('[Monday] הכרטיס הוחזר ל"חדשה":', existing.monday_item_id))
+        .catch(e => console.error('[Monday] סנכרון פתיחה מחדש נכשל:', e.message));
+    }
 
     // התראות: מייל לנציג + ITEM ב-Monday לנציגי שירות
     const savedConv = await getConversation(phone).catch(() => null);
@@ -1480,7 +1502,7 @@ app.post('/webhook/whatsapp', async (req, res) => {
     let updates = { 
       messages: msgs, 
       last_message: text, 
-      status: existing?.status || 'new',
+      status: (!existing || existing.status === 'resolved') ? 'new' : (existing.status || 'new'),
       channel: 'twilio'
     };
 
