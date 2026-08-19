@@ -264,7 +264,7 @@ select.avail-select option{color:#333}
         <button class="filter-btn" onclick="setFilter('new',this)">🔴 חדש</button>
         <button class="filter-btn" onclick="setFilter('open',this)">🟡 בטיפול</button>
         <button class="filter-btn" onclick="setFilter('resolved',this)">✅ טופל</button>
-        <button class="filter-btn" onclick="setGroupFilter('group',this)">👥 קבוצות</button>
+        <button class="filter-btn" onclick="setGroupFilter('group',this)">👥 קבוצות <span id="group-count" style="font-size:10px;opacity:.75"></span></button>
         <button class="filter-btn" onclick="setFilter('mine',this)">👤 שלי</button>
       </div>
       <div class="ch-tabs">
@@ -835,6 +835,11 @@ async function loadAllConversations() {
     document.getElementById('wa-count').textContent = waLen;
     document.getElementById('bot-count').textContent = botLen;
     document.getElementById('conv-total').textContent = waLen + botLen;
+    var grpEl = document.getElementById('group-count');
+    if (grpEl) {
+      var g = (window._waList||[]).filter(function(c){ return c.isGroup === true; }).length;
+      grpEl.textContent = g ? '('+g+')' : '';
+    }
     renderConvList();
     var newCount = (window._waList||[]).filter(c=>c.status==='new').length;
     if (newCount > _lastNewCount) { playNotification(); }
@@ -883,9 +888,10 @@ function renderConvList() {
       if (!currentChannelFilter) return true;
       return (c.channel || c.source || '') === currentChannelFilter;
     }).filter(function(c) {
-      // סנן לפי קבוצה
+      // קבוצות מוצגות רק בלשונית "קבוצות" — אין בהן פניות לנציגים
+      // וההופעה שלהן ברשימה הרגילה מפריעה לעבודה.
       if (currentGroupFilter === 'group') return c.isGroup === true;
-      return true;
+      return c.isGroup !== true;
     }).filter(function(c) {
       if (!_searchTerm) return true;
       return (c.name||'').toLowerCase().includes(_searchTerm) || (c.phone||'').includes(_searchTerm) || (c.lastMessage||'').toLowerCase().includes(_searchTerm);
