@@ -530,7 +530,7 @@ async function createServiceMondayItem(phone, text, contactName, agentName, agen
 async function notifyIncomingMessage(phone, text, conv) {
   try {
     // קבוצות אינן פניות של לקוחות — אין התראה ואין כרטיס
-    if (conv?.isGroup) {
+    if (isGroupChat(conv) || isGroupChat({ phone })) {
       console.log('[Notify] קבוצה — מדלג:', phone);
       return;
     }
@@ -1938,6 +1938,10 @@ app.delete('/api/agents/:id', async (req, res) => {
 
 const isWebChatId = (p) => !!p && (p.startsWith('tc_') || p.startsWith('web-') || p.startsWith('diag'));
 
+// קבוצת וואטסאפ — מזהה קבוצה הוא רצף ארוך של ספרות (120363...)
+const isGroupChat = (c) => c?.isGroup === true ||
+  /^\d{15,}$/.test(String(c?.phone || '').replace('+', ''));
+
 app.get('/api/conversations', async (req, res) => {
   try {
     const convs = await getAllConversations();
@@ -2195,6 +2199,10 @@ app.get('/api/wa-conversations', async (req, res) => {
       messages: c.messages || [],
       isMyConv: myId && c.assigned_agent === myId,
       assignedAgentName: c.assigned_agent ? (agentMap[c.assigned_agent] || 'נציג') : null,
+      // זיהוי קבוצה — גם משדה שמור וגם מהמזהה עצמו, כי שיחות ישנות
+      // נשמרו לפני שהשדה נוסף ואצלן הוא ריק.
+      isGroup: c.isGroup === true || /^\d{15,}$/.test(String(c.phone || '').replace('+', '')),
+      archived: !!c.archived,
     })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2752,7 +2760,7 @@ app.get('/api/reports', async (req, res) => {
     // שיחות ארכיון אינן נספרות. שיחות מהאתר נספרות בערוץ נפרד,
     // אחרת הן נכללות ב-Green והמספרים לא מסתדרים.
     // קבוצות אינן פניות — לא נספרות בדוחות
-    const convs = allConvs.filter(c => !c.archived && !c.isGroup);
+    const convs = allConvs.filter(c => !c.archived && !isGroupChat(c));
 
     const byStatus = { new: 0, open: 0, resolved: 0, awaiting: 0 };
     const byChannel = { green: 0, twilio: 0, bot: 0 };
