@@ -529,6 +529,11 @@ async function createServiceMondayItem(phone, text, contactName, agentName, agen
 // נקראת אחרי שההודעה כבר נשמרה. לא זורקת — התראה שנכשלת לא תפיל הודעה.
 async function notifyIncomingMessage(phone, text, conv) {
   try {
+    // קבוצות אינן פניות של לקוחות — אין התראה ואין כרטיס
+    if (conv?.isGroup) {
+      console.log('[Notify] קבוצה — מדלג:', phone);
+      return;
+    }
     const agentId = conv?.assigned_agent;
     if (!agentId) {
       console.log('[Notify] No assigned agent for', phone, '— skipping');
@@ -2746,7 +2751,8 @@ app.get('/api/reports', async (req, res) => {
 
     // שיחות ארכיון אינן נספרות. שיחות מהאתר נספרות בערוץ נפרד,
     // אחרת הן נכללות ב-Green והמספרים לא מסתדרים.
-    const convs = allConvs.filter(c => !c.archived);
+    // קבוצות אינן פניות — לא נספרות בדוחות
+    const convs = allConvs.filter(c => !c.archived && !c.isGroup);
 
     const byStatus = { new: 0, open: 0, resolved: 0, awaiting: 0 };
     const byChannel = { green: 0, twilio: 0, bot: 0 };
