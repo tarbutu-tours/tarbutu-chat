@@ -746,13 +746,6 @@ app.post('/api/wa-conversations/:phone/send-file', async (req, res) => {
 
     console.log('[Send File] Phone:', phone, 'File:', fileName);
     
-    // ✅ FIX #4: PREVENT FILE SENDS TO GROUP CHATS
-    const existing = await getConversation(phone);
-    if (existing?.isgroup) {
-      console.log('[Send File] REJECTED - group chat:', phone);
-      return res.status(403).json({ error: 'לא ניתן להעלות קבצים לקבוצות' });
-    }
-    
     await sendGreenAPIFile(phone, fileUrl, fileName, caption);
 
     // שמור בהיסטוריה
@@ -783,13 +776,6 @@ app.post('/api/wa-conversations/:phone/upload-file', upload.single('file'), asyn
     if (!file) return res.status(400).json({ error: 'לא נבחר קובץ' });
 
     console.log('[Upload File] Phone:', phone, 'File:', file.originalname);
-
-    // ✅ FIX #3: PREVENT FILE UPLOADS TO GROUP CHATS
-    const existing = await getConversation(phone);
-    if (existing?.isgroup) {
-      console.log('[Upload File] REJECTED - group chat:', phone);
-      return res.status(403).json({ error: 'לא ניתן להעלות קבצים לקבוצות - הודעות בקבוצות מקופחות מהמערכת' });
-    }
 
     // שלח ל-Green API דרך sendFileByUpload
     const formData = new FormData();
@@ -1450,13 +1436,13 @@ app.post('/webhook/greenapi', async (req, res) => {
     const senderName = body.senderData?.senderName || body.senderData?.pushname || phone;
     if (!phone) return;
     
-    // ✅ FIX #1: SKIP GROUP CONVERSATIONS ENTIRELY - לא נשמר בדטאבייס
+    // ✅ SKIP GROUPS ONLY - דלג על קבוצות בלבד
     if (isGroup) {
-      console.log(`[Webhook Green] 👥 קבוצה זוהתה - ${senderName} (${phone}) - הודעה לא נשמרה`);
-      return; // Don't process group messages at all
+      console.log(`[Webhook] 👥 Group detected, skipping: ${phone}`);
+      return;
     }
     
-    console.log(`[Webhook Green] 👤 אישי: ${senderName}`);
+    console.log(`[Webhook Green] ${isGroup ? '👥 קבוצה' : '👤 אישי'}: ${senderName}`);
 
     // טקסט רגיל
     const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
@@ -1539,7 +1525,7 @@ app.post('/webhook/greenapi', async (req, res) => {
     const newStatus = (!existing || wasResolved) ? 'new' : (existing.status || 'new');
     if (wasResolved) console.log('[Webhook] שיחה שנסגרה נפתחה מחדש:', phone);
 
-    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: newStatus, channel: 'green', contact_name: senderName, isgroup: false };
+    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: newStatus, channel: 'green', contact_name: senderName, isGroup };
     if (wasResolved) updates.notified_at = null;   // מאפשר מייל התראה חדש
     
     console.log('[Webhook Save]', JSON.stringify(updates, null, 2).substring(0, 300));
@@ -1959,7 +1945,6 @@ app.delete('/api/agents/:id', async (req, res) => {
 const isWebChatId = (p) => !!p && (p.startsWith('tc_') || p.startsWith('web-') || p.startsWith('diag'));
 
 // קבוצת וואטסאפ — מזהה קבוצה הוא רצף ארוך של ספרות (120363...)
-// ✅ FIX #11: Correct group chat detection - check for @g.us or isgroup flag
 const isGroupChat = (c) => c?.isgroup === true || (c?.phone || '').includes('@g.us');
 
 app.get('/api/conversations', async (req, res) => {
@@ -2221,7 +2206,7 @@ app.get('/api/wa-conversations', async (req, res) => {
       assignedAgentName: c.assigned_agent ? (agentMap[c.assigned_agent] || 'נציג') : null,
       // זיהוי קבוצה — גם משדה שמור וגם מהמזהה עצמו, כי שיחות ישנות
       // נשמרו לפני שהשדה נוסף ואצלן הוא ריק.
-      isGroup: c.isgroup === true || (c.phone || '').includes('@g.us'),
+      isGroup: c.isGroup === true || /^\d{15,}$/.test(String(c.phone || '').replace('+', '')),
       archived: !!c.archived,
     })));
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3104,8 +3089,7 @@ async function sendConversationsReport() {
     const agentsById = {};
     agents.forEach(a => { agentsById[a.id] = a; });
 
-    // ✅ FIX #5: Filter out both test conversations AND group conversations from statistics
-    const relevant = convs.filter(c => !(c.phone || '').startsWith('tc_') && c.isgroup !== true);
+    const relevant = convs.filter(c => !(c.phone || '').startsWith('tc_'));
     const sortByWait = (a, b) => (waitingSince(b) ?? 0) - (waitingSince(a) ?? 0);
     const newConvs  = relevant.filter(c => c.status === 'new').sort(sortByWait);
     const openConvs = relevant.filter(c => c.status === 'open' || c.status === 'awaiting').sort(sortByWait);
