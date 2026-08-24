@@ -1415,6 +1415,59 @@ ${kb}`;
 
 // ── Webhooks ──────────────────────────────────────────────
 
+// ✅ PIPEDRIVE WEBHOOK: כשנציג כותב Note בPipedrive - שלח ללקוח בWhatsApp
+app.post('/webhook/pipedrive-note', async (req, res) => {
+  try {
+    res.sendStatus(200);
+    const data = req.body;
+    
+    // בדוק שזה Note חדש
+    if (data.event !== 'added.note' && data.event !== 'updated.note') return;
+    
+    const note = data.current;
+    const dealId = note?.deal_id;
+    const noteContent = note?.content || '';
+    
+    if (!dealId || !noteContent) return;
+    
+    // אל תשלח הודעות שהמערכת עצמה כתבה (הודעות נכנסות)
+    if (noteContent.includes('📱 הודעת WhatsApp נכנסת')) return;
+    
+    // מצא את השיחה לפי deal_id
+    const { data: convData } = await supabase
+      .from('conversations')
+      .select('phone, contact_name, assigned_agent')
+      .eq('pipedrive_deal_id', String(dealId))
+      .single();
+    
+    if (!convData?.phone) {
+      console.log('[Pipedrive Webhook] לא נמצאה שיחה לדיל:', dealId);
+      return;
+    }
+    
+    // רק אבי ורחל
+    const SALES_AGENTS = ['agent-1783347049009', 'agent-1'];
+    if (!SALES_AGENTS.includes(convData.assigned_agent)) return;
+    
+    // שלח ללקוח בWhatsApp
+    const phone = convData.phone.replace('+', '');
+    await axios.post(
+      `${GREEN_API_BASE}/sendMessage/${GREEN_API_TOKEN}`,
+      { chatId: `${phone}@c.us`, message: noteContent }
+    );
+    console.log(`[Pipedrive→WhatsApp] נשלח ל${convData.contact_name} (${phone}): ${noteContent.substring(0, 50)}`);
+    
+    // שמור גם בדאש-בורד
+    const conv = await getConversation(convData.phone);
+    const msgs = conv?.messages || [];
+    msgs.push({ role: 'agent', text: noteContent, ts: Date.now() });
+    await upsertConversation(convData.phone, { messages: msgs, last_message: noteContent, last_reply: new Date().toISOString() });
+    
+  } catch (err) {
+    console.error('[Pipedrive Webhook] שגיאה:', err.response?.data || err.message);
+  }
+});
+
 app.post('/webhook/greenapi', async (req, res) => {
   res.sendStatus(200);
   try {
@@ -1542,6 +1595,49 @@ app.post('/webhook/greenapi', async (req, res) => {
     // שמור את ההודעה של הלקוח ב-Supabase
     await upsertConversation(phone, updates);
     console.log('[Webhook] Saved to Supabase, messages with file:', updates.messages.some(m => m.fileUrl) ? 'YES' : 'NO');
+
+    // ✅ PIPEDRIVE + EMAIL: שלח Note ומייל לנציג כשלקוח כותב
+    try {
+      const conv = await getConversation(phone);
+      const assignedAgent = conv?.assigned_agent;
+      const dealId = conv?.pipedrive_deal_id;
+
+      const SALES_AGENTS = {
+        'agent-1783347049009': { name: 'אבי צבאן',  email: 'avit.tarbutu@rimon-tours.co.il' },
+        'agent-1':             { name: 'רחל זלקה', email: 'rahel@rimon-tours.co.il' }
+      };
+
+      const agentInfo = SALES_AGENTS[assignedAgent];
+
+      if (agentInfo && dealId) {
+        const messageContent = text || (fileUrl ? `📎 קובץ: ${fileName}` : '📎 מדיה');
+        const noteContent = `📱 הודעת WhatsApp נכנסת\nמ: ${senderName}\nהודעה: ${messageContent}\nשעה: ${new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}`;
+
+        // 1. Note לדיל בPipedrive
+        await axios.post(
+          `https://api.pipedrive.com/v1/notes?api_token=${PIPEDRIVE_TOKEN}`,
+          { content: noteContent, deal_id: parseInt(dealId) }
+        );
+        console.log(`[Pipedrive] Note נוסף לדיל ${dealId} עבור ${agentInfo.name}`);
+
+        // 2. מייל לנציג
+        await axios.post('https://api.resend.com/emails', {
+          from: FROM_EMAIL,
+          to: agentInfo.email,
+          subject: `📱 הודעה חדשה מ${senderName} בWhatsApp`,
+          html: `<div dir="rtl" style="font-family:Arial,sans-serif;padding:20px">
+            <h2 style="color:#25D366">📱 הודעה חדשה בWhatsApp</h2>
+            <p>שלום ${agentInfo.name},</p>
+            <p>הלקוח <b>${senderName}</b> שלח לך:</p>
+            <div style="background:#f0f0f0;padding:15px;border-radius:8px;margin:15px 0">"${messageContent}"</div>
+            <a href="https://tarbutu.pipedrive.com/deal/${dealId}" style="background:#25D366;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">פתח דיל בPipedrive</a>
+          </div>`
+        }, { headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' } });
+        console.log(`[Email] נשלח מייל ל${agentInfo.name}`);
+      }
+    } catch (pdErr) {
+      console.error('[Pipedrive/Email] שגיאה:', pdErr.response?.data || pdErr.message);
+    }
 
     // שיחה שנפתחה מחדש — מחזירים גם את הכרטיס במונדיי ל"חדשה"
     if (wasResolved && existing?.monday_item_id) {
