@@ -746,6 +746,13 @@ app.post('/api/wa-conversations/:phone/send-file', async (req, res) => {
 
     console.log('[Send File] Phone:', phone, 'File:', fileName);
     
+    // ✅ FIX #4: PREVENT FILE SENDS TO GROUP CHATS
+    const existing = await getConversation(phone);
+    if (existing?.isGroup) {
+      console.log('[Send File] REJECTED - group chat:', phone);
+      return res.status(403).json({ error: 'לא ניתן להעלות קבצים לקבוצות' });
+    }
+    
     await sendGreenAPIFile(phone, fileUrl, fileName, caption);
 
     // שמור בהיסטוריה
@@ -776,6 +783,13 @@ app.post('/api/wa-conversations/:phone/upload-file', upload.single('file'), asyn
     if (!file) return res.status(400).json({ error: 'לא נבחר קובץ' });
 
     console.log('[Upload File] Phone:', phone, 'File:', file.originalname);
+
+    // ✅ FIX #3: PREVENT FILE UPLOADS TO GROUP CHATS
+    const existing = await getConversation(phone);
+    if (existing?.isGroup) {
+      console.log('[Upload File] REJECTED - group chat:', phone);
+      return res.status(403).json({ error: 'לא ניתן להעלות קבצים לקבוצות - הודעות בקבוצות מקופחות מהמערכת' });
+    }
 
     // שלח ל-Green API דרך sendFileByUpload
     const formData = new FormData();
@@ -1436,7 +1450,13 @@ app.post('/webhook/greenapi', async (req, res) => {
     const senderName = body.senderData?.senderName || body.senderData?.pushname || phone;
     if (!phone) return;
     
-    console.log(`[Webhook Green] ${isGroup ? '👥 קבוצה' : '👤 אישי'}: ${senderName}`);
+    // ✅ FIX #1: SKIP GROUP CONVERSATIONS ENTIRELY - לא נשמר בדטאבייס
+    if (isGroup) {
+      console.log(`[Webhook Green] 👥 קבוצה זוהתה - ${senderName} (${phone}) - הודעה לא נשמרה`);
+      return; // Don't process group messages at all
+    }
+    
+    console.log(`[Webhook Green] 👤 אישי: ${senderName}`);
 
     // טקסט רגיל
     const text = msg?.textMessageData?.textMessage || msg?.extendedTextMessageData?.text;
@@ -1519,7 +1539,8 @@ app.post('/webhook/greenapi', async (req, res) => {
     const newStatus = (!existing || wasResolved) ? 'new' : (existing.status || 'new');
     if (wasResolved) console.log('[Webhook] שיחה שנסגרה נפתחה מחדש:', phone);
 
-    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: newStatus, channel: 'green', contact_name: senderName, isGroup };
+    // ✅ FIX #2: Explicitly set isGroup to false (groups are already skipped above)
+    let updates = { messages: msgs, last_message: text || '📎 קובץ', status: newStatus, channel: 'green', contact_name: senderName, isGroup: false };
     if (wasResolved) updates.notified_at = null;   // מאפשר מייל התראה חדש
     
     console.log('[Webhook Save]', JSON.stringify(updates, null, 2).substring(0, 300));
@@ -3084,7 +3105,8 @@ async function sendConversationsReport() {
     const agentsById = {};
     agents.forEach(a => { agentsById[a.id] = a; });
 
-    const relevant = convs.filter(c => !(c.phone || '').startsWith('tc_'));
+    // ✅ FIX #5: Filter out both test conversations AND group conversations from statistics
+    const relevant = convs.filter(c => !(c.phone || '').startsWith('tc_') && c.isGroup !== true);
     const sortByWait = (a, b) => (waitingSince(b) ?? 0) - (waitingSince(a) ?? 0);
     const newConvs  = relevant.filter(c => c.status === 'new').sort(sortByWait);
     const openConvs = relevant.filter(c => c.status === 'open' || c.status === 'awaiting').sort(sortByWait);
