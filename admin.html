@@ -837,11 +837,13 @@ async function loadAllConversations() {
     document.getElementById('conv-total').textContent = waLen + botLen;
     var grpEl = document.getElementById('group-count');
     if (grpEl) {
-      var g = (window._waList||[]).filter(function(c){ return c.isGroup === true; }).length;
+      // ✅ FIX #7: Check both isGroup flag and @g.us pattern
+      var g = (window._waList||[]).filter(function(c){ return c.isGroup === true || (c.phone||'').includes('@g.us'); }).length;
       grpEl.textContent = g ? '('+g+')' : '';
     }
     renderConvList();
-    var newCount = (window._waList||[]).filter(c=>c.status==='new').length;
+    // ✅ FIX #6-8: Filter out groups from new conversation count (check both isGroup flag and @g.us pattern)
+    var newCount = (window._waList||[]).filter(c=>c.status==='new' && c.isGroup !== true && !(c.phone||'').includes('@g.us')).length;
     if (newCount > _lastNewCount) { playNotification(); }
     _lastNewCount = newCount;
     if (newCount > 0 && document.title.indexOf('🔴') === -1) document.title = '🔴 ' + newCount + ' שיחות חדשות | תרבותו';
@@ -877,7 +879,9 @@ function renderConvList() {
   if (activeChannel === 'wa') {
     var list = (window._waList || []).filter(function(c) {
       if (c.phone && c.phone.startsWith('tc_')) return false;
-      if (currentFilter === 'new') return c.status === 'new';
+      // ✅ FIX #10: When filtering by status, exclude groups
+      const isGroup = c.isGroup === true || (c.phone||'').includes('@g.us');
+      if (currentFilter === 'new') return c.status === 'new' && !isGroup;
       if (currentFilter === 'open') return c.status === 'open';
       if (currentFilter === 'awaiting') return c.status === 'awaiting';
       if (currentFilter === 'resolved') return c.status === 'resolved';
@@ -888,10 +892,10 @@ function renderConvList() {
       if (!currentChannelFilter) return true;
       return (c.channel || c.source || '') === currentChannelFilter;
     }).filter(function(c) {
-      // קבוצות מוצגות רק בלשונית "קבוצות" — אין בהן פניות לנציגים
-      // וההופעה שלהן ברשימה הרגילה מפריעה לעבודה.
-      if (currentGroupFilter === 'group') return c.isGroup === true;
-      return c.isGroup !== true;
+      // ✅ FIX #9: קבוצות מוצגות רק בלשונית "קבוצות" — בדוק גם @g.us pattern
+      const isGroup = c.isGroup === true || (c.phone||'').includes('@g.us');
+      if (currentGroupFilter === 'group') return isGroup;
+      return !isGroup;
     }).filter(function(c) {
       if (!_searchTerm) return true;
       return (c.name||'').toLowerCase().includes(_searchTerm) || (c.phone||'').includes(_searchTerm) || (c.lastMessage||'').toLowerCase().includes(_searchTerm);
