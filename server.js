@@ -1960,8 +1960,8 @@ app.delete('/api/agents/:id', async (req, res) => {
 const isWebChatId = (p) => !!p && (p.startsWith('tc_') || p.startsWith('web-') || p.startsWith('diag'));
 
 // קבוצת וואטסאפ — מזהה קבוצה הוא רצף ארוך של ספרות (120363...)
-const isGroupChat = (c) => c?.isGroup === true ||
-  /^\d{15,}$/.test(String(c?.phone || '').replace('+', ''));
+// ✅ FIX #7: Correct group chat detection - check for @g.us or isGroup flag
+const isGroupChat = (c) => c?.isGroup === true || (c?.phone || '').includes('@g.us');
 
 app.get('/api/conversations', async (req, res) => {
   try {
