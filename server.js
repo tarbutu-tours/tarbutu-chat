@@ -2999,7 +2999,7 @@ const PORT = process.env.PORT || 3000;
 // ── דוח פניות פעמיים ביום ─────────────────────────────────
 // נשלח ב-09:00 וב-16:00 שעון ישראל למנהלי מערכת וסופרוויזרים.
 
-const REPORT_HOURS = [9, 16];
+const REPORT_HOURS = []; // ✅ בטול דוחות יומיים
 
 function waitingSince(conv) {
   const msgs = Array.isArray(conv.messages) ? conv.messages : [];
