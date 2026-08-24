@@ -1945,7 +1945,7 @@ app.delete('/api/agents/:id', async (req, res) => {
 const isWebChatId = (p) => !!p && (p.startsWith('tc_') || p.startsWith('web-') || p.startsWith('diag'));
 
 // קבוצת וואטסאפ — מזהה קבוצה הוא רצף ארוך של ספרות (120363...)
-const isGroupChat = (c) => c?.isgroup === true || (c?.phone || '').includes('@g.us');
+const isGroupChat = (c) => c?.isGroup === true || (c?.phone || '').includes('@g.us');
 
 app.get('/api/conversations', async (req, res) => {
   try {
