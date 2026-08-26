@@ -130,19 +130,36 @@ async function createPipedriveLead(name, phone, summary, opts = {}) {
       personId = personRes.data.data?.id;
     }
 
-    // דיל
-    const dealBody = {
-      title: `פנייה מ${source} — ${name}`,
-      stage_id: PIPEDRIVE_STAGE_ID,
-      person_id: personId,
-      '862b7d3afb751251d1d3dee296f39949da0ca889': 298,
-    };
-    if (ownerId) dealBody.user_id = ownerId;
+    // בדוק אם יש דיל פתוח קיים ל-Person
+    let dealId = null;
+    if (personId) {
+      try {
+        const existingDeals = await axios.get(
+          `https://api.pipedrive.com/v1/persons/${personId}/deals?status=open&api_token=${PIPEDRIVE_TOKEN}`
+        );
+        const openDeal = existingDeals.data?.data?.[0];
+        if (openDeal) {
+          dealId = openDeal.id;
+          console.log(`[Pipedrive] נמצא דיל פתוח קיים ${dealId} עבור ${name} — לא פותח כפול`);
+        }
+      } catch (e) {}
+    }
 
-    const dealRes = await axios.post(
-      `https://api.pipedrive.com/v1/deals?api_token=${PIPEDRIVE_TOKEN}`, dealBody
-    );
-    const dealId = dealRes.data.data?.id;
+    // דיל חדש רק אם אין דיל פתוח
+    if (!dealId) {
+      const dealBody = {
+        title: `פנייה מ${source} — ${name}`,
+        stage_id: PIPEDRIVE_STAGE_ID,
+        person_id: personId,
+        '862b7d3afb751251d1d3dee296f39949da0ca889': 298,
+      };
+      if (ownerId) dealBody.user_id = ownerId;
+
+      const dealRes = await axios.post(
+        `https://api.pipedrive.com/v1/deals?api_token=${PIPEDRIVE_TOKEN}`, dealBody
+      );
+      dealId = dealRes.data.data?.id;
+    }
 
     if (dealId && summary) {
       await axios.post(
