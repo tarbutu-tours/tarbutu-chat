@@ -85,6 +85,7 @@ select.avail-select option{color:#333}
 .msg.system .msg-bbl{background:#f0f4f8;color:#6c757d;border-radius:99px;font-size:11px;padding:4px 12px}
 .msg-meta{font-size:10px;color:#adb5bd;padding:0 3px}
 .msg-sender{font-size:10px;font-weight:600;color:#1a7040;padding:0 3px}
+.msg:hover .copy-btn{opacity:1!important}
 .input-area{padding:10px 14px;background:#fff;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0}
 .input-area textarea{flex:1;border:1.5px solid var(--border);border-radius:10px;padding:8px 12px;font-size:13px;outline:none;font-family:inherit;direction:rtl;resize:none;min-height:40px;max-height:120px;transition:border-color .2s}
 .input-area textarea:focus{border-color:var(--p)}
@@ -1003,7 +1004,7 @@ function renderMessages(msgs) {
       }
       fileHtml += '<div style="margin:6px 0;display:inline-block"><a href="/api/download?url='+encodeURIComponent(m.fileUrl)+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#fff;text-decoration:none;background:var(--p);padding:6px 12px;border-radius:8px;font-weight:600;transition:all .2s;cursor:pointer" onmouseover="this.style.background=\'var(--pd)\'" onmouseout="this.style.background=\'var(--p)\'"><i class="ti ti-download" style="font-size:16px"></i> הורד קובץ</a></div>';
     }
-    return sep+'<div class="msg '+role+'">'+(role==='agent'?'<div class="msg-sender">'+(m.agentName||'נציג')+'</div>':'')+'<div class="msg-bbl">'+fileHtml+(m.fileUrl&&!m.content?'':((m.content||'').replace(/\n/g,'<br>')))+'</div><div class="msg-meta" title="'+(m.time?new Date(m.time).toLocaleString('he-IL'):'')+'">'+(m.time?new Date(m.time).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):'')+' '+(m.channel==='green'?'📱':'📞')+'</div></div>';
+    return sep+'<div class="msg '+role+'">'+(role==='agent'?'<div class="msg-sender">'+(m.agentName||'נציג')+'</div>':'')+'<div class="msg-bbl">'+fileHtml+(m.fileUrl&&!m.content?'':((m.content||'').replace(/\n/g,'<br>')))+'<button onclick="var t=this;var txt=this.closest(\'.msg-bbl\').innerText.replace(/📋|✅/g,\'\').trim();navigator.clipboard.writeText(txt).then(function(){t.textContent=\'✅\';setTimeout(function(){t.textContent=\'📋\'},1500)})" class="copy-btn" title="העתק הודעה" style="background:none;border:none;cursor:pointer;font-size:12px;opacity:0;transition:opacity .2s;padding:0 2px;vertical-align:middle">📋</button></div><div class="msg-meta" title="'+(m.time?new Date(m.time).toLocaleString('he-IL'):'')+'">'+(m.time?new Date(m.time).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):'')+' '+(m.channel==='green'?'📱':'📞')+'</div></div>';
   }).join('');
 }
 
