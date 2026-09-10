@@ -61,7 +61,7 @@
       position: fixed;
       /* מעל כפתור הוואטסאפ שיושב ב-bottom:24px בגובה ~56px */
       bottom: 96px;
-      right: 24px;
+      left: 24px;
       z-index: 99999;
       direction: rtl;
       pointer-events: none;
@@ -362,8 +362,8 @@
     }
 
     @media (max-width: 420px) {
-      #tb-window { width: 100vw; height: 100vh; border-radius: 0; bottom: 0; right: 0; position: fixed; }
-      #tb-chat-root { bottom: 74px; right: 16px; }
+      #tb-window { width: 100vw; height: 100vh; border-radius: 0; bottom: 0; left: 0; position: fixed; }
+      #tb-chat-root { bottom: 74px; left: 16px; }
     }
   `;
   document.head.appendChild(style);
