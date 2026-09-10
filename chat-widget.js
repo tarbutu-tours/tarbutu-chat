@@ -64,6 +64,11 @@
       right: 24px;
       z-index: 99999;
       direction: rtl;
+      pointer-events: none;
+    }
+    #tb-chat-root #tb-toggle,
+    #tb-chat-root #tb-window {
+      pointer-events: all;
     }
 
     /* ── חלון צ'אט ── */
@@ -654,15 +659,15 @@
     toggle.classList.remove('tb-show');
     unread = 0;
     notif.classList.remove('tb-show');
+    root.style.pointerEvents = 'all';
     setTimeout(() => input.focus(), 300);
-
-
   }
 
   function closeChat() {
     isOpen = false;
     win.classList.add('tb-hidden');
     toggle.classList.add('tb-show');
+    root.style.pointerEvents = 'none';
     try { sessionStorage.setItem('tarbutu_closed', '1'); } catch (e) {}
   }
 
